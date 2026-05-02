@@ -1,0 +1,85 @@
+generator client {
+	provider = "prisma-client-js"
+}
+
+datasource db {
+	provider = "postgresql"
+}
+
+enum UserRole {
+	ADMIN
+	SALES
+}
+
+enum ProductCategory {
+	PANEL
+	PUMP
+	INVERTER
+	ACCESSORY
+}
+
+enum QuoteStatus {
+	PENDING
+	ACCEPTED
+	REJECTED
+}
+
+model User {
+	id       String   @id @default(uuid())
+	email    String   @unique
+	password String
+	role     UserRole @default(SALES)
+
+	quotes Quote[]
+}
+
+model Client {
+	id        String @id @default(uuid())
+	name      String
+	phone     String?
+	latitude  Float
+	longitude Float
+
+	quotes Quote[]
+}
+
+model Product {
+	id       String          @id @default(uuid())
+	name     String
+	brand    String?
+	category ProductCategory
+	price    Float
+
+	/// PostgreSQL: stored as JSONB by default.
+	specifications Json
+}
+
+model Quote {
+	id       String      @id @default(uuid())
+	clientId String
+	userId   String
+	status   QuoteStatus @default(PENDING)
+
+	totalPrice Float
+
+	// Inputs
+	wellDepth         Float
+	irrigationSurface Float
+	cropType          String
+
+	// Outputs
+	dailyWaterNeed Float
+	requiredPower  Float
+	panelCount     Int
+	pumpModel      String
+	basinVolume    Float
+
+	createdAt DateTime @default(now())
+	updatedAt DateTime @updatedAt
+
+	client Client @relation(fields: [clientId], references: [id])
+	user   User   @relation(fields: [userId], references: [id])
+
+	@@index([clientId])
+	@@index([status])
+}
