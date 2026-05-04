@@ -9,56 +9,8 @@ const normalizeClients = (payload) => {
 	return [];
 };
 
-const isMockSizingEnabled = () =>
-	import.meta.env.DEV && String(import.meta.env.VITE_MOCK_SIZING).toLowerCase() === 'true';
-
-const buildMockResult = (payload) => {
-	const currency = 'MAD';
-	const initialInvestment = 148000;
-	const solarAnnualCost = 2500;
-	const dieselAnnualCost = 26000;
-	const horizonYears = 10;
-
-	const roiSeries = Array.from({ length: horizonYears + 1 }, (_, year) => ({
-		year,
-		solar: initialInvestment + year * solarAnnualCost,
-		diesel: year * dieselAnnualCost,
-	}));
-
-	return {
-		panelCount: 18,
-		pumpModel: 'Pompe immergée 2.2kW - 10m³/h',
-		basinVolume: 120,
-		financial: {
-			currency,
-			totalHT: 148000,
-			totalTTC: 159000,
-			initialInvestment,
-		},
-		materials: [
-			{ name: 'Panneau PV 550W Mono', brand: 'Jinko', category: 'PANEL', quantity: 18, unitPrice: 1850 },
-			{ name: 'Variateur / MPPT 22kW', brand: 'INVT', category: 'INVERTER', quantity: 1, unitPrice: 38000 },
-			{ name: 'Pompe immergée 2.2kW', brand: 'Pedrollo', category: 'PUMP', quantity: 1, unitPrice: 16500 },
-			{ name: 'Câbles + protections', brand: '—', category: 'ACCESSORY', quantity: 1, unitPrice: 9000 },
-		],
-		roi: {
-			series: roiSeries,
-			solarAnnualCost,
-			dieselAnnualCost,
-			solarInitialInvestment: initialInvestment,
-		},
-		inputs: payload,
-	};
-};
-
-const mockRunSizing = async (payload) => {
-	await new Promise((r) => setTimeout(r, 600));
-	return buildMockResult(payload);
-};
-
 export default function SizingPage() {
 	const [clients, setClients] = useState([]);
-	const mockSizing = isMockSizingEnabled();
 
 	useEffect(() => {
 		const controller = new AbortController();
@@ -89,7 +41,7 @@ export default function SizingPage() {
 				</p>
 			</header>
 
-			<SizingStepper clients={clients} onRunSizing={mockSizing ? mockRunSizing : undefined} />
+			<SizingStepper clients={clients} />
 		</div>
 	);
 }

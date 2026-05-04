@@ -8,9 +8,9 @@
  * - Idempotent: safe to re-run (uses upsert)
  * - Security: passwords are hashed with bcrypt
  *
- * Requirements (Prisma ORM v7+):
+ * Requirements:
  * - `DATABASE_URL` must be set
- * - Install deps: `@prisma/client`, `prisma`, `@prisma/adapter-pg`, `pg`, `bcrypt`
+ * - Install deps: `@prisma/client`, `prisma`, `bcrypt`
  */
 
 const SEED_IDS = {
@@ -44,33 +44,11 @@ const getEnv = (name) => {
 	return value;
 };
 
-const pickModule = (moduleNs) => moduleNs?.default ?? moduleNs;
-
-const createPrismaClient = async () => {
-	const { PrismaClient } = await import('@prisma/client');
-	const databaseUrl = getEnv('DATABASE_URL');
-
-	// Prisma ORM v7+ expects a driver adapter (direct DB connection) or Accelerate.
-	// Here we use the PostgreSQL adapter.
-	const adapterNs = await import('@prisma/adapter-pg');
-	const { PrismaPg } = adapterNs;
-
-	let adapter;
-	try {
-		adapter = new PrismaPg({ connectionString: databaseUrl });
-	} catch (error) {
-		// Fallback for adapter versions expecting a pg Pool.
-		const pgNs = await import('pg');
-		const { Pool } = pickModule(pgNs);
-		adapter = new PrismaPg(new Pool({ connectionString: databaseUrl }));
-	}
-
-	return new PrismaClient({ adapter });
-};
+const { PrismaClient } = require('@prisma/client');
 
 const hashPassword = async (plainTextPassword) => {
 	const bcryptNs = await import('bcrypt');
-	const bcrypt = pickModule(bcryptNs);
+	const bcrypt = bcryptNs?.default ?? bcryptNs;
 	const saltRounds = 12;
 	return bcrypt.hash(plainTextPassword, saltRounds);
 };
@@ -83,7 +61,8 @@ async function main() {
 		// ignore
 	}
 
-	const prisma = await createPrismaClient();
+	getEnv('DATABASE_URL');
+	const prisma = new PrismaClient();
 	try {
 		console.log('Seeding database...');
 
@@ -359,7 +338,7 @@ async function main() {
 
 		console.log('Seed complete.');
 		console.log(`Users: ${adminUser.email}, ${salesUser.email}`);
-		console.log(`Clients: ${clientMeknes.name}, ${clientSoussMassa.name}, ${clientTafilalet.name}`);
+		await prisma.$disconnect();
 		console.log(`Products: ${products.length}`);
 	} finally {
 		await prisma.$disconnect();

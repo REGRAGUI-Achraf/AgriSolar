@@ -11,7 +11,7 @@ const resolveBaseUrl = () => {
   // Sensible defaults:
   // - In dev, assume the backend runs locally.
   // - In production, prefer same-origin (empty baseURL).
-  return import.meta.env.DEV ? 'http://localhost:3000' : '';
+  return import.meta.env.DEV ? 'http://localhost:3001' : '';
 };
 
 export const apiClient = axios.create({
@@ -64,6 +64,43 @@ export const getProducts = async (options = {}) => {
   return items.map(normalizeProduct).filter(Boolean);
 };
 
+export const getClients = async (options = {}) => {
+  const { signal } = options;
+  const response = await apiClient.get('/api/clients', { signal });
+  const payload = response?.data;
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload?.clients)) return payload.clients;
+  return [];
+};
+
+export const createClient = async (input) => {
+  const response = await apiClient.post('/api/clients', input);
+  return response?.data;
+};
+
+export const updateClient = async (id, input) => {
+  const response = await apiClient.put(`/api/clients/${encodeURIComponent(String(id))}`, input);
+  return response?.data;
+};
+
+export const deleteClient = async (id) => {
+  await apiClient.delete(`/api/clients/${encodeURIComponent(String(id))}`);
+};
+
+export const createProduct = async (input) => {
+  const response = await apiClient.post('/api/catalog', input);
+  return normalizeProduct(response?.data);
+};
+
+export const updateProduct = async (id, input) => {
+  const response = await apiClient.put(`/api/catalog/${encodeURIComponent(String(id))}`, input);
+  return normalizeProduct(response?.data);
+};
+
+export const deleteProduct = async (id) => {
+  await apiClient.delete(`/api/catalog/${encodeURIComponent(String(id))}`);
+};
+
 /**
  * Façade service (prête pour ajouter du cache offline).
  *
@@ -71,4 +108,11 @@ export const getProducts = async (options = {}) => {
  */
 export const api = {
   getProducts,
+  getClients,
+  createClient,
+  updateClient,
+  deleteClient,
+  createProduct,
+  updateProduct,
+  deleteProduct,
 };
