@@ -10,7 +10,8 @@ Objectifs principaux :
 - Permettre un **mode offline** pour travailler sur le terrain.
 - Générer un **devis PDF** à partir d’un projet dimensionné.
 
-> Remarque : ce dépôt contient volontairement **uniquement l’arborescence** et des **fichiers vides** (JS/JSX/CSS/Prisma/Dockerfile, etc.) afin de poser le cadre du projet avant d’implémenter la logique.
+> Remarque (mise à jour) : le dépôt contient désormais une **implémentation exécutable en dev** (client + server + Postgres).
+> Pour l’état d’avancement “réel” (ce qui est implémenté vs prévu), voir `progress.md`.
 
 ---
 
@@ -277,39 +278,85 @@ Modèles possibles (à affiner) :
 - `Quote` / `QuoteItem` (devis et lignes)
 - `SyncEvent` (optionnel) : journal de synchronisation offline
 
-Le schéma Prisma sera à écrire dans :
+Le schéma Prisma est défini dans :
 - `server/prisma/schema.prisma`
 
 ---
 
-## 7) Installation (Docker Compose)
+## 7) Lancer en dev
 
-### Pré-requis
-- Docker installé
-- Docker Compose (plugin `docker compose`)
+### Option A — Tout via Docker Compose (recommandé)
 
-### Démarrage (structure fournie, fichiers à compléter)
-Les fichiers Docker existent mais sont **vides** pour l’instant :
-- `docker-compose.yml`
-- `client/Dockerfile`
-- `server/Dockerfile`
+Pré-requis :
+- Docker
+- Docker Compose (commande `docker compose`)
 
-Étapes recommandées :
-1. Copier le fichier d’exemple d’environnement :
-   - dupliquer `.env.example` en `.env` puis le compléter.
-2. Renseigner `docker-compose.yml` pour définir au minimum :
-   - `db` (PostgreSQL),
-   - `server` (Express),
-   - `client` (Vite/React).
-3. Compléter les Dockerfiles `client/` et `server/`.
-4. Lancer :
-   - `docker compose up --build`
+Démarrer la stack (Postgres + API + UI) :
 
-### Variables d’environnement (exemples)
-- `DATABASE_URL` (Prisma) : URL PostgreSQL
-- `PORT` : port du serveur
-- `CLIENT_ORIGIN` : origine autorisée (CORS)
-- `PVGIS_BASE_URL` : base URL PVGIS (optionnel si appel direct)
+```bash
+docker compose up --build
+```
+
+Accès :
+- UI : http://localhost:5173
+- API : http://localhost:3001
+- DB : Postgres sur `localhost:5432`
+
+Endpoints utiles :
+- `GET http://localhost:3001/api/health`
+- `GET http://localhost:3001/api/clients`
+- `GET http://localhost:3001/api/catalog`
+- `POST http://localhost:3001/api/sizing/run`
+
+Arrêter :
+
+```bash
+docker compose down
+```
+
+Reset DB (supprime le volume Postgres) :
+
+```bash
+docker compose down -v
+```
+
+### Option B — Sans Docker (Node + Postgres)
+
+Pré-requis :
+- Node.js 20+
+- Postgres 16+
+
+1) Démarrer Postgres localement (service OS ou container).
+
+2) Backend :
+
+Créez un fichier `server/.env` (ou exportez les variables) :
+
+```env
+PORT=3001
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/agrisolar?schema=public
+```
+
+Puis :
+
+```bash
+cd server
+npm install
+npm run prisma:generate
+npm run db:push
+npm run db:seed
+npm run dev
+```
+
+3) Frontend :
+
+```bash
+cd client
+npm install
+npm run dev
+```
+
+Le client vise l’API sur `http://localhost:3001` en dev (voir `client/src/services/api.js`).
 
 ---
 

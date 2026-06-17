@@ -1,4 +1,5 @@
 const quotesService = require('../services/quotes.service');
+const pdfService = require('../services/pdf.service');
 const { parseNumber, requireString } = require('../utils/validators');
 
 const listQuotes = async (req, res, next) => {
@@ -100,8 +101,97 @@ const createQuote = async (req, res, next) => {
 	}
 };
 
+const generateQuotePDF = async (req, res, next) => {
+	try {
+		const id = String(req.params.id);
+		const quote = await quotesService.getQuoteById(id);
+
+		if (!quote) {
+			const err = new Error('Quote not found');
+			err.status = 404;
+			throw err;
+		}
+
+		// Construire l'objet de données pour le service PDF
+		const quoteData = {
+			quoteId: quote.id,
+			commercialName: quote.user?.email || 'AgriSolar',
+			client: {
+				name: quote.client?.name || 'Client',
+				phone: quote.client?.phone || '',
+				latitude: quote.client?.latitude || 0,
+				longitude: quote.client?.longitude || 0,
+			},
+			inputs: {
+				wellDepth: quote.wellDepth || 0,
+				irrigationSurface: quote.irrigationSurface || 0,
+				cropType: quote.cropType || 'Non spécifié',
+				dailyWaterNeed: quote.dailyWaterNeed || 0,
+			},
+			result: {
+				panelCount: quote.panelCount || 0,
+				pumpModel: quote.pumpModel || 'Pompe',
+				hmt: quote.wellDepth || 0,
+				basinVolume: quote.basinVolume || 0,
+				pvPower: quote.requiredPower || 0,
+			},
+			materials: [
+				{
+					name: `Panneaux Photovoltaïques`,
+					brand: 'JinkoSolar',
+					quantity: quote.panelCount || 0,
+					unitPriceHT: 250,
+				},
+				{
+					name: `Pompe Immergeable - ${quote.pumpModel}`,
+					brand: 'Grundfos',
+					quantity: 1,
+					unitPriceHT: 1500,
+				},
+				{
+					name: `Contrôleur MPPT`,
+					brand: 'Victron',
+					quantity: 1,
+					unitPriceHT: 800,
+				},
+				{
+					name: `Accessoires & Tuyauterie`,
+					brand: 'AgriSolar',
+					quantity: 1,
+					unitPriceHT: 500,
+				},
+				{
+					name: `Bâche du Bassin (${quote.basinVolume}m³)`,
+					brand: 'Agriflex',
+					quantity: 1,
+					unitPriceHT: 300,
+				},
+			],
+			totalHT: quote.totalPrice || 0,
+		};
+
+		// Générer le PDF
+		const pdfStream = pdfService.generateQuotePDF(quoteData);
+
+		// Configurer les headers HTTP
+		res.setHeader('Content-Type', 'application/pdf');
+		res.setHeader('Content-Disposition', `attachment; filename="devis-${quote.id}.pdf"`);
+
+		// Streamer le PDF
+		pdfStream.pipe(res);
+
+		// Gérer les erreurs du stream
+		pdfStream.on('error', (err) => {
+			next(err);
+		});
+	} catch (err) {
+		next(err);
+	}
+};
+
 module.exports = {
 	listQuotes,
 	getQuote,
 	createQuote,
+	generateQuotePDF,
 };
