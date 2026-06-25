@@ -37,6 +37,26 @@ const parseNumber = (value, { fieldName = 'value', required = false, min = null 
 	return n;
 };
 
+const parseBoolean = (value, { fieldName = 'value', required = false } = {}) => {
+	if (value === undefined || value === null || value === '') {
+		if (required) throw badRequest(`${fieldName} est requis.`);
+		return null;
+	}
+
+	if (typeof value === 'boolean') return value;
+	if (typeof value === 'number') {
+		if (value === 1) return true;
+		if (value === 0) return false;
+	}
+	if (typeof value === 'string') {
+		const normalized = value.trim().toLowerCase();
+		if (['true', '1', 'yes', 'oui'].includes(normalized)) return true;
+		if (['false', '0', 'no', 'non'].includes(normalized)) return false;
+	}
+
+	throw badRequest(`${fieldName} invalide.`);
+};
+
 const requireString = (value, fieldName) => {
 	if (!isNonEmptyString(value)) throw badRequest(`${fieldName} est requis.`);
 	return String(value).trim();
@@ -47,5 +67,6 @@ module.exports = {
 	isNonEmptyString,
 	parseJsonObject,
 	parseNumber,
+	parseBoolean,
 	requireString,
 };

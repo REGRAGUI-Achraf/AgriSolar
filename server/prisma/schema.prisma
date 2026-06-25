@@ -30,6 +30,11 @@ model User {
 	email    String   @unique
 	password String
 	role     UserRole @default(SALES)
+	fullName String?
+	isActive Boolean  @default(true)
+	lastLoginAt DateTime?
+	createdAt DateTime @default(now())
+	updatedAt DateTime @updatedAt
 
 	quotes Quote[]
 }
@@ -38,30 +43,57 @@ model Client {
 	id        String @id @default(uuid())
 	name      String
 	phone     String?
+	email     String?
+	address   String?
+	city      String?
+	region    String?
+	country   String?
+	notes     String?
 	latitude  Float
 	longitude Float
+	createdAt DateTime @default(now())
+	updatedAt DateTime @updatedAt
+	deletedAt DateTime?
 
 	quotes Quote[]
+
+	@@index([name])
+	@@index([deletedAt])
 }
 
 model Product {
 	id       String          @id @default(uuid())
+	sku      String?         @unique
 	name     String
 	brand    String?
 	category ProductCategory
+	unit     String?         @default("piece")
+	stock    Int             @default(0)
+	isActive Boolean         @default(true)
 	price    Float
 
 	/// PostgreSQL: stored as JSONB by default.
 	specifications Json
+	createdAt DateTime @default(now())
+	updatedAt DateTime @updatedAt
+	deletedAt DateTime?
+
+	@@index([category])
+	@@index([deletedAt])
 }
 
 model Quote {
 	id       String      @id @default(uuid())
+	quoteNumber String   @unique @default(cuid())
 	clientId String
 	userId   String
 	status   QuoteStatus @default(PENDING)
 
 	totalPrice Float
+	currency   String    @default("MAD")
+	validUntil DateTime?
+	notes      String?
+	deletedAt  DateTime?
 
 	// Inputs
 	wellDepth         Float
@@ -83,4 +115,5 @@ model Quote {
 
 	@@index([clientId])
 	@@index([status])
+	@@index([deletedAt])
 }

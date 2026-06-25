@@ -2,6 +2,7 @@ const { prisma } = require('../config/db');
 
 const listQuotes = async () =>
 	prisma.quote.findMany({
+		where: { deletedAt: null },
 		orderBy: [{ createdAt: 'desc' }],
 		include: {
 			client: { select: { id: true, name: true, phone: true, latitude: true, longitude: true } },
@@ -10,8 +11,8 @@ const listQuotes = async () =>
 	});
 
 const getQuoteById = async (id) =>
-	prisma.quote.findUnique({
-		where: { id },
+	prisma.quote.findFirst({
+		where: { id, deletedAt: null },
 		include: {
 			client: { select: { id: true, name: true, phone: true, latitude: true, longitude: true } },
 			user: { select: { id: true, email: true, role: true } },

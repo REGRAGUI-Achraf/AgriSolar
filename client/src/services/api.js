@@ -21,6 +21,26 @@ export const apiClient = axios.create({
   },
 });
 
+apiClient.interceptors.request.use((config) => {
+  const token = localStorage.getItem('agrisolar.authToken');
+  if (token) {
+    config.headers = config.headers || {};
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
+apiClient.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error?.response?.status === 401) {
+      localStorage.removeItem('agrisolar.authToken');
+      localStorage.removeItem('agrisolar.authUser');
+    }
+    return Promise.reject(error);
+  },
+);
+
 const safeJsonObject = (value) => {
   if (value && typeof value === 'object' && !Array.isArray(value)) return value;
   if (typeof value === 'string') {
@@ -101,6 +121,65 @@ export const deleteProduct = async (id) => {
   await apiClient.delete(`/api/catalog/${encodeURIComponent(String(id))}`);
 };
 
+export const getQuotes = async (options = {}) => {
+  const { signal } = options;
+  const response = await apiClient.get('/api/quotes', { signal });
+  const payload = response?.data;
+  return Array.isArray(payload) ? payload : [];
+};
+
+export const getQuoteById = async (id, options = {}) => {
+  const { signal } = options;
+  const response = await apiClient.get(`/api/quotes/${encodeURIComponent(String(id))}`, { signal });
+  return response?.data ?? null;
+};
+
+export const createQuote = async (input) => {
+  const response = await apiClient.post('/api/quotes', input);
+  return response?.data;
+};
+
+export const downloadQuotePdf = async (id) => {
+  const response = await apiClient.get(`/api/quotes/${encodeURIComponent(String(id))}/pdf`, {
+    responseType: 'blob',
+  });
+  return response?.data ?? null;
+};
+
+export const authLogin = async ({ email, password }) => {
+  const response = await apiClient.post('/api/auth/login', { email, password });
+  return response?.data;
+};
+
+export const authMe = async () => {
+  const response = await apiClient.get('/api/auth/me');
+  return response?.data;
+};
+
+export const setAuthSession = ({ token, user }) => {
+  if (token) localStorage.setItem('agrisolar.authToken', token);
+  if (user) localStorage.setItem('agrisolar.authUser', JSON.stringify(user));
+};
+
+export const clearAuthSession = () => {
+  localStorage.removeItem('agrisolar.authToken');
+  localStorage.removeItem('agrisolar.authUser');
+};
+
+export const getStoredAuthSession = () => {
+  const token = localStorage.getItem('agrisolar.authToken');
+  const userRaw = localStorage.getItem('agrisolar.authUser');
+  let user = null;
+  if (userRaw) {
+    try {
+      user = JSON.parse(userRaw);
+    } catch {
+      user = null;
+    }
+  }
+  return { token, user };
+};
+
 /**
  * Façade service (prête pour ajouter du cache offline).
  *
@@ -115,4 +194,13 @@ export const api = {
   createProduct,
   updateProduct,
   deleteProduct,
+  getQuotes,
+  getQuoteById,
+  createQuote,
+  downloadQuotePdf,
+  authLogin,
+  authMe,
+  setAuthSession,
+  clearAuthSession,
+  getStoredAuthSession,
 };

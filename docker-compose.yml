@@ -22,6 +22,7 @@ services:
     environment:
       NODE_ENV: development
       PORT: "3001"
+      AUTH_TOKEN_SECRET: agrisolar-dev-secret-change-me
       # In dev we allow all origins by default (see server/src/app.js)
       DATABASE_URL: postgresql://postgres:postgres@db:5432/agrisolar?schema=public
     ports:
@@ -29,7 +30,7 @@ services:
     volumes:
       - ./server:/app
       - /app/node_modules
-    command: sh -c "npm run prisma:generate && npm run db:push && npm run db:seed && npm run dev"
+    command: sh -c "npm run prisma:generate && npm run db:migrate && npm run db:seed && npm run dev"
     depends_on:
       db:
         condition: service_healthy
@@ -51,5 +52,25 @@ services:
     depends_on:
       - server
 
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@agrisolar.com
+      PGADMIN_DEFAULT_PASSWORD: admin123
+      PGADMIN_LISTEN_PORT: 80
+      PGADMIN_CONFIG_SERVER_MODE: 'True'
+      PGADMIN_SERVER_JSON_FILE: /pgadmin4/servers.json
+      PGPASSFILE: /var/lib/pgadmin/storage/admin@agrisolar.com/.pgpass
+    ports:
+      - "5050:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+      - ./pgadmin/servers.json:/pgadmin4/servers.json:ro
+      - ./pgadmin/pgpass:/pgadmin4/pgpass:ro
+      - ./pgadmin/pgpass:/var/lib/pgadmin/storage/admin@agrisolar.com/.pgpass:ro
+    depends_on:
+      - db
+
 volumes:
   agrisolar_pgdata:
+  pgadmin_data:

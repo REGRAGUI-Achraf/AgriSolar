@@ -1,0 +1,10 @@
+{
+  "name": "agrisolar",
+  "private": true,
+  "scripts": {
+    "prisma:studio": "npm --prefix server exec prisma studio -- --schema prisma/schema.prisma",
+    "prisma:generate": "npm --prefix server exec prisma generate -- --schema prisma/schema.prisma",
+    "prisma:migrate": "npm --prefix server exec prisma migrate deploy -- --schema prisma/schema.prisma",
+    "prisma:seed": "npm --prefix server exec node prisma/seed.js"
+  }
+}

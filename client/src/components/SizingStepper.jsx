@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 
-import { apiClient } from '../services/api';
+import { api, apiClient } from '../services/api';
 import ResultsDashboard from './ResultsDashboard';
 
 const STEP_KEYS = ['location', 'water', 'technical', 'result'];
@@ -258,6 +258,10 @@ export default function SizingStepper({ clients = [], onRunSizing }) {
   const [runError, setRunError] = useState(null);
   const [result, setResult] = useState(null);
 
+  const [quoteSaving, setQuoteSaving] = useState(false);
+  const [quoteError, setQuoteError] = useState(null);
+  const [savedQuote, setSavedQuote] = useState(null);
+
   const options = useMemo(() => ({ requireClientSelection }), [requireClientSelection]);
 
   const stepErrors = useMemo(() => validateStep(currentStep, formData, options), [currentStep, formData, options]);
@@ -343,6 +347,8 @@ export default function SizingStepper({ clients = [], onRunSizing }) {
 
   const runSizing = async () => {
     setRunError(null);
+    setQuoteError(null);
+    setSavedQuote(null);
     setResult(null);
 
     const { firstInvalidStep, errors } = validateAll(formData, options);
@@ -378,6 +384,55 @@ export default function SizingStepper({ clients = [], onRunSizing }) {
       if (message) setRunError(message);
     } finally {
       setRunLoading(false);
+    }
+  };
+
+  const saveQuote = async () => {
+    const selectedClient = requireClientSelection ? extractClientById(clients, formData.clientId) : null;
+
+    if (!selectedClient?.id) {
+      setQuoteError('Sélectionne un client enregistré pour sauvegarder le devis.');
+      return;
+    }
+
+    if (!result) {
+      setQuoteError('Lance d’abord un calcul avant de sauvegarder le devis.');
+      return;
+    }
+
+    setQuoteError(null);
+    setQuoteSaving(true);
+    try {
+      const payload = {
+        clientId: selectedClient.id,
+        inputs: {
+          clientId: selectedClient.id,
+          cropType: formData.cropType,
+          wellDepth: parseFiniteNumber(formData.wellDepth),
+          irrigationSurface: parseFiniteNumber(formData.irrigationSurface),
+          dailyWaterNeed: result?.inputs?.dailyWaterNeed,
+          requiredPower: result?.financial?.requiredPower,
+        },
+        result: {
+          panelCount: result.panelCount,
+          pumpModel: result.pumpModel,
+          basinVolume: result.basinVolume,
+          financial: result.financial,
+          materials: result.materials,
+          roi: result.roi,
+        },
+        totalPrice: result?.financial?.totalHT ?? result?.financial?.totalTTC,
+        dailyWaterNeed: result?.inputs?.dailyWaterNeed,
+        requiredPower: result?.financial?.requiredPower,
+      };
+
+      const created = await api.createQuote(payload);
+      setSavedQuote(created);
+    } catch (err) {
+      const message = toErrorMessage(err);
+      if (message) setQuoteError(message);
+    } finally {
+      setQuoteSaving(false);
     }
   };
 
@@ -630,6 +685,33 @@ export default function SizingStepper({ clients = [], onRunSizing }) {
           </button>
           <p className="text-xs text-slate-600">Les résultats s'afficheront ci-dessous (Module C).</p>
         </div>
+
+        {result ? (
+          <div className="flex flex-wrap items-center gap-3 rounded-lg border border-slate-200 bg-white p-4">
+            <button
+              type="button"
+              onClick={saveQuote}
+              disabled={quoteSaving || !requireClientSelection || !formData.clientId}
+              className={getButtonClasses('secondary', quoteSaving || !requireClientSelection || !formData.clientId)}
+              title={!requireClientSelection || !formData.clientId ? 'Choisis un client enregistré pour sauvegarder le devis.' : undefined}
+            >
+              {quoteSaving ? 'Sauvegarde…' : 'Sauvegarder le devis'}
+            </button>
+            <p className="text-xs text-slate-600">
+              Le devis sera enregistré dans l’historique et disponible en PDF.
+            </p>
+          </div>
+        ) : null}
+
+        {quoteError ? (
+          <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">{quoteError}</div>
+        ) : null}
+
+        {savedQuote ? (
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
+            Devis enregistré: {savedQuote.quoteNumber || savedQuote.id}
+          </div>
+        ) : null}
 
         {runError ? (
           <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-800">

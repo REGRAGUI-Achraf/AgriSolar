@@ -14,7 +14,7 @@ const NavButton = ({ active, onClick, children }) => (
 	</button>
 );
 
-export default function Layout({ routes, activeRoute, onNavigate }) {
+export default function Layout({ routes, activeRoute, onNavigate, user, onLogout }) {
 	return (
 		<div className="border-b border-slate-200 bg-white">
 			<div className="mx-auto flex max-w-6xl flex-col gap-3 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
@@ -23,13 +23,33 @@ export default function Layout({ routes, activeRoute, onNavigate }) {
 					<div className="text-xs text-slate-500">Dimensionnement + catalogue + clients</div>
 				</div>
 
-				<nav className="flex flex-wrap gap-2">
-					{routes.map((r) => (
-						<NavButton key={r.key} active={r.key === activeRoute} onClick={() => onNavigate(r.key)}>
-							{r.label}
-						</NavButton>
-					))}
-				</nav>
+				<div className="flex flex-col items-start gap-2 sm:items-end">
+					<div className="text-sm text-slate-600">
+						{user ? (
+							<>
+								{user.email} · <span className="font-medium uppercase">{user.role}</span>
+							</>
+						) : (
+							'Non connecté'
+						)}
+					</div>
+					<div className="flex flex-wrap gap-2">
+						{routes.map((r) => (
+							<NavButton key={r.key} active={r.key === activeRoute} onClick={() => onNavigate(r.key)}>
+								{r.label}
+							</NavButton>
+						))}
+						{onLogout ? (
+							<button
+								type="button"
+								onClick={onLogout}
+								className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100"
+							>
+								Déconnexion
+							</button>
+						) : null}
+					</div>
+				</div>
 			</div>
 		</div>
 	);

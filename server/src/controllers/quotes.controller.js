@@ -64,12 +64,15 @@ const createQuote = async (req, res, next) => {
 
 		let userId = body.userId ?? inputs.userId;
 		if (!userId) {
+			userId = req.auth?.userId;
+		}
+		if (!userId) {
 			userId = await quotesService.findDefaultSalesUserId();
-			if (!userId) {
-				const err = new Error('No SALES user found to attach the quote. Seed the database first.');
-				err.status = 500;
-				throw err;
-			}
+		}
+		if (!userId) {
+			const err = new Error('No SALES user found to attach the quote. Seed the database first.');
+			err.status = 500;
+			throw err;
 		}
 
 		const status = (body.status ?? 'PENDING').toUpperCase();

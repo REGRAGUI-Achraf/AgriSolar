@@ -1,5 +1,5 @@
 const catalogService = require('../services/catalog.service');
-const { parseJsonObject, parseNumber, requireString } = require('../utils/validators');
+const { parseBoolean, parseJsonObject, parseNumber, requireString } = require('../utils/validators');
 
 const normalizeCategory = (value) => {
 	const category = String(value || '').trim().toUpperCase();
@@ -28,10 +28,14 @@ module.exports = {
 			const name = requireString(req.body?.name, 'name');
 			const brand = req.body?.brand;
 			const category = normalizeCategory(req.body?.category);
+			const sku = req.body?.sku;
+			const unit = req.body?.unit;
+			const stock = req.body?.stock !== undefined ? Math.max(0, Math.round(parseNumber(req.body?.stock, { fieldName: 'stock', required: true, min: 0 }))) : undefined;
+			const isActive = req.body?.isActive !== undefined ? parseBoolean(req.body?.isActive, { fieldName: 'isActive' }) : undefined;
 			const price = parseNumber(req.body?.price, { fieldName: 'price', required: true, min: 0 });
 			const specifications = parseJsonObject(req.body?.specifications, { fieldName: 'specifications', required: false });
 
-			const created = await catalogService.createProduct({ name, brand, category, price, specifications });
+			const created = await catalogService.createProduct({ sku, name, brand, category, unit, stock, isActive, price, specifications });
 			res.status(201).json(created);
 		} catch (err) {
 			next(err);
@@ -42,14 +46,18 @@ module.exports = {
 			const id = String(req.params.id);
 			const name = req.body?.name !== undefined ? requireString(req.body?.name, 'name') : undefined;
 			const brand = req.body?.brand;
+			const sku = req.body?.sku;
 			const category = req.body?.category !== undefined ? normalizeCategory(req.body?.category) : undefined;
+			const unit = req.body?.unit;
+			const stock = req.body?.stock !== undefined ? Math.max(0, Math.round(parseNumber(req.body?.stock, { fieldName: 'stock', required: true, min: 0 }))) : undefined;
+			const isActive = req.body?.isActive !== undefined ? parseBoolean(req.body?.isActive, { fieldName: 'isActive' }) : undefined;
 			const price = req.body?.price !== undefined ? parseNumber(req.body?.price, { fieldName: 'price', required: true, min: 0 }) : undefined;
 			const specifications =
 				req.body?.specifications !== undefined
 					? parseJsonObject(req.body?.specifications, { fieldName: 'specifications', required: false })
 					: undefined;
 
-			const updated = await catalogService.updateProduct(id, { name, brand, category, price, specifications });
+			const updated = await catalogService.updateProduct(id, { sku, name, brand, category, unit, stock, isActive, price, specifications });
 			res.json(updated);
 		} catch (err) {
 			next(err);

@@ -1,5 +1,5 @@
-const PDFDocument = require('pdfkit');
-const { v4: uuidv4 } = require('uuid');
+const { randomUUID } = require('crypto');
+let PDFDocument;
 
 // ============================================================================
 // CONSTANTES CORPORATE
@@ -28,6 +28,17 @@ const CONTENT_WIDTH = PAGE_WIDTH - 2 * MARGIN;
  * @returns {PDFDocument} Flux PDF prêt à être envoyé
  */
 const generateQuotePDF = (quoteData) => {
+  if (!PDFDocument) {
+    try {
+      // eslint-disable-next-line global-require
+      PDFDocument = require('pdfkit');
+    } catch {
+      const err = new Error('PDF export unavailable: install pdfkit in the server runtime.');
+      err.status = 501;
+      throw err;
+    }
+  }
+
   const data = normalizeQuoteData(quoteData);
   const pdf = new PDFDocument({ size: 'A4', margin: MARGIN });
 
@@ -426,7 +437,7 @@ const drawPage2 = (pdf, data) => {
 
 const normalizeQuoteData = (quoteData) => {
   return {
-    quoteId: quoteData.quoteId || `QT-${uuidv4().substring(0, 8).toUpperCase()}`,
+    quoteId: quoteData.quoteId || `QT-${randomUUID().slice(0, 8).toUpperCase()}`,
     commercialName: quoteData.commercialName || 'AgriSolar',
     client: {
       name: quoteData.client?.name || 'Client',
