@@ -1,1 +1,4 @@
 pgadmin/
+pgadmin/
+.env
+*.log
