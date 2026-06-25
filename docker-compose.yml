@@ -64,13 +64,20 @@ services:
     ports:
       - "5050:80"
     volumes:
-      - pgadmin_data:/var/lib/pgadmin
+      - ./pgadmin/storage:/var/lib/pgadmin/storage
       - ./pgadmin/servers.json:/pgadmin4/servers.json:ro
-      - ./pgadmin/pgpass:/pgadmin4/pgpass:ro
       - ./pgadmin/pgpass:/var/lib/pgadmin/storage/admin@agrisolar.com/.pgpass:ro
+    depends_on:
+      - db
+
+  adminer:
+    image: adminer:latest
+    ports:
+      - "8081:8080"
+    environment:
+      ADMINER_DEFAULT_SERVER: db
     depends_on:
       - db
 
 volumes:
   agrisolar_pgdata:
-  pgadmin_data:
