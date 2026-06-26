@@ -115,13 +115,32 @@ const generateQuotePDF = async (req, res, next) => {
 			throw err;
 		}
 
-		// Construire l'objet de données pour le service PDF
+		const parseNotes = (notes) => {
+			if (!notes) return {};
+			if (typeof notes === 'object') return notes;
+			try {
+				return JSON.parse(notes);
+			} catch {
+				return {};
+			}
+		};
+
+		const quoteNotes = parseNotes(quote.notes);
 		const quoteData = {
-			quoteId: quote.id,
+			quoteId: quote.quoteNumber || quote.id,
 			commercialName: quote.user?.email || 'AgriSolar',
+			company: {
+				name: 'AgriSolar',
+				ice: 'ICE: 001234567890',
+			},
 			client: {
 				name: quote.client?.name || 'Client',
 				phone: quote.client?.phone || '',
+				email: quote.client?.email || '',
+				address: quote.client?.address || '',
+				city: quote.client?.city || '',
+				region: quote.client?.region || '',
+				country: quote.client?.country || 'Maroc',
 				latitude: quote.client?.latitude || 0,
 				longitude: quote.client?.longitude || 0,
 			},
@@ -131,59 +150,42 @@ const generateQuotePDF = async (req, res, next) => {
 				cropType: quote.cropType || 'Non spécifié',
 				dailyWaterNeed: quote.dailyWaterNeed || 0,
 			},
+			technical: {
+				hmt: quote.wellDepth || 0,
+				pvPower: quote.requiredPower || 0,
+				installationLabel: quoteNotes.typeInstallation || 'Installation solaire de pompage',
+				tensionLabel: quoteNotes.tension || 'Système photovoltaïque direct',
+				tiltLabel:
+					quoteNotes.panelTilt != null
+						? `${quoteNotes.panelTilt}°`
+						: quoteNotes.useOptimalTilt
+						? 'Inclinaison optimale 30°'
+						: '—',
+				selectedPanelLabel: quoteNotes.selectedPanelLabel || quoteNotes.selectedPanelId || 'Modèle sélectionné',
+				selectedPumpBrand: quote.pumpModel || quoteNotes.selectedPumpBrand || 'Pompe',
+				distanceWellToBasin: quoteNotes.distanceWellToBasin || 0,
+			},
 			result: {
 				panelCount: quote.panelCount || 0,
-				pumpModel: quote.pumpModel || 'Pompe',
-				hmt: quote.wellDepth || 0,
+				pumpModel: quote.pumpModel || quoteNotes.selectedPumpBrand || 'Pompe',
 				basinVolume: quote.basinVolume || 0,
 				pvPower: quote.requiredPower || 0,
 			},
-			materials: [
-				{
-					name: `Panneaux Photovoltaïques`,
-					brand: 'JinkoSolar',
-					quantity: quote.panelCount || 0,
-					unitPriceHT: 250,
-				},
-				{
-					name: `Pompe Immergeable - ${quote.pumpModel}`,
-					brand: 'Grundfos',
-					quantity: 1,
-					unitPriceHT: 1500,
-				},
-				{
-					name: `Contrôleur MPPT`,
-					brand: 'Victron',
-					quantity: 1,
-					unitPriceHT: 800,
-				},
-				{
-					name: `Accessoires & Tuyauterie`,
-					brand: 'AgriSolar',
-					quantity: 1,
-					unitPriceHT: 500,
-				},
-				{
-					name: `Bâche du Bassin (${quote.basinVolume}m³)`,
-					brand: 'Agriflex',
-					quantity: 1,
-					unitPriceHT: 300,
-				},
-			],
-			totalHT: quote.totalPrice || 0,
+			financial: {
+				totalHT: quote.totalPrice || 0,
+				tva: quote.totalPrice ? quote.totalPrice * 0.2 : 0,
+				totalTTC: quote.totalPrice ? quote.totalPrice * 1.2 : 0,
+			},
+			notes: quote.notes || JSON.stringify(quoteNotes),
 		};
 
-		// Générer le PDF
-		const pdfStream = pdfService.generateQuotePDF(quoteData);
+		const pdfStream = await pdfService.generateQuotePDF(quoteData);
+		const filename = pdfService.getQuotePdfFilename(quoteData);
 
-		// Configurer les headers HTTP
 		res.setHeader('Content-Type', 'application/pdf');
-		res.setHeader('Content-Disposition', `attachment; filename="devis-${quote.id}.pdf"`);
+		res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
 
-		// Streamer le PDF
 		pdfStream.pipe(res);
-
-		// Gérer les erreurs du stream
 		pdfStream.on('error', (err) => {
 			next(err);
 		});

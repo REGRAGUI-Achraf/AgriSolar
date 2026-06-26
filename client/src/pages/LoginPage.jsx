@@ -15,8 +15,8 @@ const Input = ({ label, ...props }) => (
 );
 
 export default function LoginPage({ onLogin }) {
-	const [email, setEmail] = useState('admin@agrisolar.com');
-	const [password, setPassword] = useState('Admin@agrisolar123');
+	const [email, setEmail] = useState('');
+	const [password, setPassword] = useState('');
 	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState(null);
 
@@ -42,8 +42,8 @@ export default function LoginPage({ onLogin }) {
 				<p className="mt-1 text-sm text-slate-600">Accède à l’espace commercial et admin avec un compte seedé.</p>
 
 				<form onSubmit={submit} className="mt-6 space-y-4">
-					<Input label="Email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
-					<Input label="Mot de passe" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+					<Input label="Email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="adresse@exemple.com" required />
+					<Input label="Mot de passe" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" required />
 
 					{error ? <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}</div> : null}
 
@@ -55,9 +55,6 @@ export default function LoginPage({ onLogin }) {
 						{loading ? 'Connexion…' : 'Se connecter'}
 					</button>
 
-					<div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
-						Démo: <span className="font-medium">admin@agrisolar.com / Admin@agrisolar123</span> ou <span className="font-medium">commercial@1 / Sales@agrisolar123</span>
-					</div>
 				</form>
 			</div>
 		</div>

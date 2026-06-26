@@ -1,5 +1,5 @@
 const crypto = require('crypto');
-const bcrypt = require('bcrypt');
+const bcrypt = require('bcryptjs');
 
 const { prisma } = require('../config/db');
 const { getEnv } = require('../config/env');
@@ -75,7 +75,7 @@ const login = async ({ email, password }) => {
 
 	if (!user || !user.isActive) return null;
 
-	const isValid = await bcrypt.compare(password, user.password);
+	const isValid = bcrypt.compareSync(password, user.password);
 	if (!isValid) return null;
 
 	await prisma.user.update({

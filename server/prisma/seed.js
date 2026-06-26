@@ -46,11 +46,11 @@ const getEnv = (name) => {
 
 const { PrismaClient } = require('@prisma/client');
 
-const hashPassword = async (plainTextPassword) => {
-	const bcryptNs = await import('bcrypt');
-	const bcrypt = bcryptNs?.default ?? bcryptNs;
+const bcrypt = require('bcryptjs');
+
+const hashPassword = (plainTextPassword) => {
 	const saltRounds = 12;
-	return bcrypt.hash(plainTextPassword, saltRounds);
+	return bcrypt.hashSync(plainTextPassword, saltRounds);
 };
 
 async function main() {

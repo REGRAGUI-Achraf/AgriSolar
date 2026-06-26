@@ -62,6 +62,20 @@ const normalizeProduct = (raw) => {
   };
 };
 
+const extractFilenameFromDisposition = (headerValue) => {
+  if (!headerValue || typeof headerValue !== 'string') return null;
+
+  const filenameRegex = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i;
+  const match = headerValue.match(filenameRegex);
+  if (!match || !match[1]) return null;
+
+  try {
+    return decodeURIComponent(match[1].trim());
+  } catch {
+    return match[1].trim();
+  }
+};
+
 /**
  * Récupère la liste des produits (matériel) depuis le backend.
  *
@@ -143,7 +157,15 @@ export const downloadQuotePdf = async (id) => {
   const response = await apiClient.get(`/api/quotes/${encodeURIComponent(String(id))}/pdf`, {
     responseType: 'blob',
   });
-  return response?.data ?? null;
+
+  const contentDisposition =
+    response.headers?.['content-disposition'] || response.headers?.['Content-Disposition'] || '';
+  const filename = extractFilenameFromDisposition(contentDisposition) || 'AgriSolar-Quote.pdf';
+
+  return {
+    blob: response?.data,
+    filename,
+  };
 };
 
 export const authLogin = async ({ email, password }) => {

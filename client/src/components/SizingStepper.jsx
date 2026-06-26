@@ -261,6 +261,7 @@ export default function SizingStepper({ clients = [], onRunSizing }) {
   const [quoteSaving, setQuoteSaving] = useState(false);
   const [quoteError, setQuoteError] = useState(null);
   const [savedQuote, setSavedQuote] = useState(null);
+  const [isDownloading, setIsDownloading] = useState(false);
 
   const options = useMemo(() => ({ requireClientSelection }), [requireClientSelection]);
 
@@ -433,6 +434,73 @@ export default function SizingStepper({ clients = [], onRunSizing }) {
       if (message) setQuoteError(message);
     } finally {
       setQuoteSaving(false);
+    }
+  };
+
+  const handleDownloadPDF = async () => {
+    if (!result) {
+      setQuoteError('Lance d’abord un calcul avant de générer le devis PDF.');
+      return;
+    }
+
+    if (requireClientSelection && !formData.clientId) {
+      setQuoteError('Sélectionne un client enregistré avant de générer le devis PDF.');
+      return;
+    }
+
+    setQuoteError(null);
+    setIsDownloading(true);
+
+    try {
+      const payload = {
+        clientId: requireClientSelection ? formData.clientId : undefined,
+        clientName: requireClientSelection ? undefined : formData.clientName,
+        latitude: parseFiniteNumber(formData.latitude),
+        longitude: parseFiniteNumber(formData.longitude),
+        cropType: formData.cropType,
+        irrigationSurface: parseFiniteNumber(formData.irrigationSurface),
+        wellDepth: parseFiniteNumber(formData.wellDepth),
+        distanceWellToBasin: parseFiniteNumber(formData.distanceWellToBasin),
+        panelTilt: parseFiniteNumber(formData.panelTilt),
+        result: {
+          panelCount: result.panelCount,
+          pumpModel: result.pumpModel,
+          basinVolume: result.basinVolume,
+          financial: result.financial,
+          materials: result.materials,
+          roi: result.roi,
+        },
+        totalPrice: result?.financial?.totalHT ?? result?.financial?.totalTTC,
+        dailyWaterNeed: result?.inputs?.dailyWaterNeed,
+        requiredPower: result?.financial?.requiredPower,
+      };
+
+      const createdQuote = await api.createQuote(payload);
+      setSavedQuote(createdQuote);
+
+      const { blob, filename } = await api.downloadQuotePdf(createdQuote.id);
+      if (!blob) {
+        throw new Error('Le fichier PDF n’a pas pu être généré.');
+      }
+
+      const url = window.URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = filename;
+      anchor.style.display = 'none';
+      document.body.appendChild(anchor);
+      anchor.click();
+      document.body.removeChild(anchor);
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      const message = toErrorMessage(err);
+      if (message) {
+        setQuoteError(message);
+      } else {
+        alert('Une erreur est survenue lors de la génération du devis PDF.');
+      }
+    } finally {
+      setIsDownloading(false);
     }
   };
 
@@ -696,6 +764,15 @@ export default function SizingStepper({ clients = [], onRunSizing }) {
               title={!requireClientSelection || !formData.clientId ? 'Choisis un client enregistré pour sauvegarder le devis.' : undefined}
             >
               {quoteSaving ? 'Sauvegarde…' : 'Sauvegarder le devis'}
+            </button>
+            <button
+              type="button"
+              onClick={handleDownloadPDF}
+              disabled={isDownloading}
+              className={getButtonClasses('primary', isDownloading)}
+              title={isDownloading ? 'Génération en cours…' : 'Générer le devis PDF'}
+            >
+              {isDownloading ? 'Génération en cours…' : 'Générer le devis PDF'}
             </button>
             <p className="text-xs text-slate-600">
               Le devis sera enregistré dans l’historique et disponible en PDF.
