@@ -83,11 +83,28 @@ const createQuote = async (req, res, next) => {
 			throw err;
 		}
 
+		const notes = typeof body.notes === 'string'
+			? body.notes
+			: JSON.stringify(
+				body.notes ?? {
+					typeInstallation: inputs.typeInstallation || 'Installation solaire de pompage',
+					selectedPanelLabel: inputs.selectedPanelLabel || result?.selectedPanelLabel || 'Modèle sélectionné',
+					selectedPumpBrand: inputs.selectedPumpBrand || result?.selectedPumpBrand || 'Pompe',
+					tension: inputs.tension || result?.tension || '–',
+					useOptimalTilt: inputs.useOptimalTilt ?? true,
+					panelTilt: inputs.panelTilt ?? result?.panelTilt ?? null,
+					distanceWellToBasin: inputs.distanceWellToBasin ?? result?.distanceWellToBasin ?? 0,
+					materials: result?.materials ?? [],
+					financial: result?.financial ?? {},
+				}
+			);
+
 		const quote = await quotesService.createQuote({
 			clientId,
 			userId,
 			status,
 			totalPrice,
+			notes,
 			wellDepth,
 			irrigationSurface,
 			cropType,
@@ -115,19 +132,8 @@ const generateQuotePDF = async (req, res, next) => {
 			throw err;
 		}
 
-		const parseNotes = (notes) => {
-			if (!notes) return {};
-			if (typeof notes === 'object') return notes;
-			try {
-				return JSON.parse(notes);
-			} catch {
-				return {};
-			}
-		};
-
-		const quoteNotes = parseNotes(quote.notes);
 		const quoteData = {
-			quoteId: quote.quoteNumber || quote.id,
+			quoteId: quote.id,
 			commercialName: quote.user?.email || 'AgriSolar',
 			company: {
 				name: 'AgriSolar',
@@ -153,21 +159,16 @@ const generateQuotePDF = async (req, res, next) => {
 			technical: {
 				hmt: quote.wellDepth || 0,
 				pvPower: quote.requiredPower || 0,
-				installationLabel: quoteNotes.typeInstallation || 'Installation solaire de pompage',
-				tensionLabel: quoteNotes.tension || 'Système photovoltaïque direct',
-				tiltLabel:
-					quoteNotes.panelTilt != null
-						? `${quoteNotes.panelTilt}°`
-						: quoteNotes.useOptimalTilt
-						? 'Inclinaison optimale 30°'
-						: '—',
-				selectedPanelLabel: quoteNotes.selectedPanelLabel || quoteNotes.selectedPanelId || 'Modèle sélectionné',
-				selectedPumpBrand: quote.pumpModel || quoteNotes.selectedPumpBrand || 'Pompe',
-				distanceWellToBasin: quoteNotes.distanceWellToBasin || 0,
+				installationLabel: 'Installation solaire de pompage',
+				tensionLabel: 'Système photovoltaïque direct',
+				tiltLabel: 'Inclinaison optimale 30°',
+				selectedPanelLabel: 'Modèle sélectionné',
+				selectedPumpBrand: quote.pumpModel || 'Pompe',
+				distanceWellToBasin: 0,
 			},
 			result: {
 				panelCount: quote.panelCount || 0,
-				pumpModel: quote.pumpModel || quoteNotes.selectedPumpBrand || 'Pompe',
+				pumpModel: quote.pumpModel || 'Pompe',
 				basinVolume: quote.basinVolume || 0,
 				pvPower: quote.requiredPower || 0,
 			},
@@ -176,20 +177,28 @@ const generateQuotePDF = async (req, res, next) => {
 				tva: quote.totalPrice ? quote.totalPrice * 0.2 : 0,
 				totalTTC: quote.totalPrice ? quote.totalPrice * 1.2 : 0,
 			},
-			notes: quote.notes || JSON.stringify(quoteNotes),
+			notes: JSON.stringify({
+				typeInstallation: 'Installation solaire de pompage',
+				tension: 'Système photovoltaïque direct',
+				useOptimalTilt: true,
+				selectedPumpBrand: quote.pumpModel || 'Pompe',
+			}),
 		};
 
-		const pdfStream = await pdfService.generateQuotePDF(quoteData);
 		const filename = pdfService.getQuotePdfFilename(quoteData);
 
 		res.setHeader('Content-Type', 'application/pdf');
 		res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
 
-		pdfStream.pipe(res);
-		pdfStream.on('error', (err) => {
-			next(err);
-		});
+		await pdfService.generateQuotePDF(quoteData, res);
 	} catch (err) {
+		console.error(err);
+		if (res.headersSent) {
+			if (!res.writableEnded) {
+				res.end();
+			}
+			return;
+		}
 		next(err);
 	}
 };
