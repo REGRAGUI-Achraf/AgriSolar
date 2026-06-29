@@ -11,8 +11,6 @@ import {
   YAxis,
 } from 'recharts';
 
-import { exportElementToPdf } from '../services/ExportService';
-
 const isFiniteNumber = (value) => typeof value === 'number' && Number.isFinite(value);
 
 const formatNumber = (value, options = {}) => {
@@ -287,7 +285,7 @@ export default function ResultsDashboard({
   client,
   company = { name: 'HelioFlow', logoUrl: null },
   horizonYears = 10,
-  pdfElementId = 'results-dashboard-pdf',
+  onDownloadPdf = null,
 }) {
   const [pdfLoading, setPdfLoading] = useState(false);
   const [pdfError, setPdfError] = useState(null);
@@ -354,22 +352,17 @@ export default function ResultsDashboard({
 
   const hasRoi = derived.roiSeries.length >= 2;
 
-  const fileName = useMemo(() => {
-    const base = `Devis-${company?.name ?? 'HelioFlow'}-${derived.clientName ?? 'Client'}`;
-    const date = new Intl.DateTimeFormat('fr-CA').format(new Date()); // YYYY-MM-DD
-    return `${base}-${date}.pdf`;
-  }, [company?.name, derived.clientName]);
-
   const handleDownloadPdf = async () => {
+    if (typeof onDownloadPdf !== 'function') {
+      setPdfError('Le téléchargement PDF n’est pas configuré pour ce tableau.');
+      return;
+    }
+
     setPdfError(null);
     setPdfLoading(true);
 
     try {
-      await exportElementToPdf({
-        elementId: pdfElementId,
-        fileName,
-        options: { scale: 2, marginMm: 10, backgroundColor: '#ffffff' },
-      });
+      await onDownloadPdf();
     } catch (error) {
       const message =
         typeof error?.message === 'string' && error.message.trim()
@@ -385,7 +378,7 @@ export default function ResultsDashboard({
 
   return (
     <div className="space-y-4">
-      <div id={pdfElementId} className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+      <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
         <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
             <div className="flex items-center gap-3">
@@ -588,7 +581,7 @@ export default function ResultsDashboard({
       </div>
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="text-xs text-slate-600">Export PDF basé sur la vue de synthèse ci-dessus.</div>
+        <div className="text-xs text-slate-600">Téléchargement PDF via le backend, avec les données de dimensionnement enregistrées.</div>
 
         <button
           type="button"
@@ -616,9 +609,6 @@ export default function ResultsDashboard({
         <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-rose-800">
           <p className="text-sm font-semibold">Export PDF impossible</p>
           <p className="mt-1 text-sm">{pdfError}</p>
-          <p className="mt-2 text-xs text-rose-800">
-            Dépendances attendues: `html2canvas` et `jspdf`.
-          </p>
         </div>
       ) : null}
     </div>

@@ -90,9 +90,19 @@ const deleteProduct = async (id) =>
 		select: { id: true },
 	});
 
+const listMaterials = async () => {
+	const [panneaux, pompes, variateurs] = await Promise.all([
+		prisma.panneauPhotovoltaique.findMany({ orderBy: { puissanceCrete: 'asc' } }),
+		prisma.pompeHydraulique.findMany({ orderBy: { puissance: 'asc' } }),
+		prisma.variateurSolaire.findMany({ orderBy: { puissanceMax: 'asc' } }),
+	]);
+	return { panneaux, pompes, variateurs };
+};
+
 module.exports = {
 	listCatalog,
 	createProduct,
 	updateProduct,
 	deleteProduct,
+	listMaterials,
 };

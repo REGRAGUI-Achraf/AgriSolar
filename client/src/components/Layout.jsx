@@ -18,9 +18,12 @@ export default function Layout({ routes, activeRoute, onNavigate, user, onLogout
 	return (
 		<div className="border-b border-slate-200 bg-white">
 			<div className="mx-auto flex max-w-6xl flex-col gap-3 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
-				<div>
-					<div className="text-lg font-semibold text-slate-900">AgriSolar</div>
-					<div className="text-xs text-slate-500">Dimensionnement + catalogue + clients</div>
+				<div className="flex items-center gap-3">
+					<img src="/logo.png" alt="BAGHDAD S.A.R.L" className="h-12 w-auto" />
+					<div>
+						<div className="text-lg font-semibold text-slate-900">BAGHDAD S.A.R.L</div>
+						<div className="text-xs text-slate-500">Dimensionnement + catalogue + clients</div>
+					</div>
 				</div>
 
 				<div className="flex flex-col items-start gap-2 sm:items-end">

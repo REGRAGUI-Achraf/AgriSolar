@@ -1,4 +1,6 @@
 const { randomUUID } = require('crypto');
+const path = require('path');
+const fs = require('fs');
 const PDFDocument = require('pdfkit-table');
 
 const COLORS = {
@@ -10,7 +12,7 @@ const COLORS = {
 };
 
 const PAGE_MARGINS = { top: 50, left: 50, right: 50, bottom: 50 };
-const COMPANY_NAME = 'AgriSolar';
+const COMPANY_NAME = 'BAGHDAD S.A.R.L';
 const TVA_RATE = 0.2;
 
 const toNumber = (value, fallback = 0) => {
@@ -18,7 +20,9 @@ const toNumber = (value, fallback = 0) => {
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 
-const formatMad = (amount) => `MAD ${Number(amount || 0).toFixed(2)}`;
+const formatMad = (amount) => {
+  return `${Number(amount || 0).toFixed(2)} MAD`;
+};
 
 const sanitizeFilenamePart = (value) =>
   String(value || 'Client')
@@ -63,7 +67,7 @@ const parseNotes = (notes) => {
 
 const normalizeQuoteData = (quoteData) => {
   const client = quoteData.client || {};
-    const technical = quoteData.technical || {};
+  const technical = quoteData.technical || {};
   const notes = parseNotes(quoteData.notes);
   const inputs = quoteData.inputs || {};
   const fallbackMaterials = Array.isArray(notes.materials) ? notes.materials : [];
@@ -71,7 +75,7 @@ const normalizeQuoteData = (quoteData) => {
   const financial = computeFinancials(materials);
 
   return {
-    quoteId: safeString(quoteData.quoteId) || `QT-${randomUUID().slice(0, 8).toUpperCase()}`,
+    quoteId: (safeString(quoteData.id || quoteData.quoteId).substring(0, 8).toUpperCase()) || `QT-${randomUUID().slice(0, 8).toUpperCase()}`,
     company: {
       name: COMPANY_NAME,
       address: safeString(quoteData.company?.address) || '—',
@@ -148,30 +152,51 @@ const generateQuotePDF = async (quoteData, res = null) => {
 
 const drawHeader = (doc, data) => {
   const width = doc.page.width - doc.page.margins.left - doc.page.margins.right;
-  const y = doc.y;
+  const y = 40; // Haut de page fixe
+  doc.y = y;
 
-  doc.rect(doc.page.margins.left, y, width, 60).fillOpacity(1).fill(COLORS.background);
-  doc.fillOpacity(1).fill(COLORS.primary).font('Helvetica-Bold').fontSize(22).text(data.company.name, doc.page.margins.left + 10, y + 10, {
-    width: width * 0.6,
+  // Optionnel: fond de l'en-tête
+  doc.rect(doc.page.margins.left, y, width, 80).fillOpacity(1).fill(COLORS.background);
+  
+  const logoPath = path.join(__dirname, '../assets/logo.png');
+  let textXOffset = 10;
+  
+  if (fs.existsSync(logoPath)) {
+    // 50, 50 equivalent -> margins.left, y+10
+    doc.image(logoPath, doc.page.margins.left + 10, y + 10, { width: 100 });
+    textXOffset = 130;
+  }
+
+  // Informations de l'entreprise
+  doc.fillOpacity(1).fill(COLORS.primary).font('Helvetica-Bold').fontSize(20).text(data.company.name, doc.page.margins.left + textXOffset, y + 20, {
+    width: width * 0.4,
+  });
+  doc.font('Helvetica').fontSize(10).fillColor(COLORS.muted).text('Contact : contact@baghdad.ma', doc.page.margins.left + textXOffset, y + 45, {
+    width: width * 0.4,
   });
 
-  doc.font('Helvetica').fontSize(10).fillColor(COLORS.muted).text(`Devis : ${data.quoteId}`, doc.page.margins.left + 10, y + 36, {
-    width: width * 0.6,
-  });
+  // Détails du document alignés à droite
+  const infoX = doc.page.margins.left + width * 0.6;
+  const infoWidth = width * 0.38;
+  
+  doc.font('Helvetica-Bold').fontSize(14).fillColor(COLORS.primary).text(`Devis N° ${data.quoteId}`, infoX, y + 20, { align: 'right', width: infoWidth });
+  doc.font('Helvetica').fontSize(10).fillColor(COLORS.muted).text(`Date : ${new Date().toLocaleDateString('fr-FR')}`, infoX, y + 45, { align: 'right', width: infoWidth });
 
-  const infoX = doc.page.margins.left + width * 0.65;
-  doc.font('Helvetica-Bold').fontSize(10).fillColor(COLORS.text).text('Date', infoX, y + 10, { align: 'right' });
-  doc.font('Helvetica').fontSize(10).fillColor(COLORS.text).text(new Date().toLocaleDateString('fr-FR'), {
-    align: 'right',
-  });
-
-  doc.moveTo(doc.page.margins.left, y + 70).lineTo(doc.page.width - doc.page.margins.right, y + 70).strokeColor(COLORS.border).lineWidth(0.5).stroke();
-  doc.y = y + 80;
+  doc.moveTo(doc.page.margins.left, y + 95).lineTo(doc.page.width - doc.page.margins.right, y + 95).strokeColor(COLORS.border).lineWidth(0.5).stroke();
+  
+  // CRITIQUE : Réinitialisation propre du curseur vertical pour empêcher le chevauchement
+  doc.y = 140;
+  doc.x = doc.page.margins.left;
 };
 
 const drawClientSection = (doc, data) => {
-  doc.font('Helvetica-Bold').fontSize(13).fillColor(COLORS.primary).text('Informations client');
-  doc.moveDown(0.5);
+  doc.x = doc.page.margins.left;
+  
+  const startY = doc.y;
+  doc.rect(doc.x, startY, doc.page.width - doc.page.margins.left - doc.page.margins.right, 24).fillColor('#f3f4f6').fill();
+  doc.font('Helvetica-Bold').fontSize(12).fillColor(COLORS.primary).text('Informations client', doc.x + 8, startY + 6);
+  
+  doc.y = startY + 36;
 
   const rows = [
     ['Client', data.client.name],
@@ -181,16 +206,21 @@ const drawClientSection = (doc, data) => {
   ];
 
   rows.forEach(([label, value]) => {
-    doc.font('Helvetica-Bold').fontSize(10).fillColor(COLORS.text).text(`${label}: `, {
-      continued: true,
-    });
-    doc.font('Helvetica').fontSize(10).fillColor(COLORS.muted).text(value);
+    const currentY = doc.y;
+    doc.font('Helvetica-Bold').fontSize(10).fillColor(COLORS.text).text(label, doc.page.margins.left, currentY, { width: 140 });
+    doc.font('Helvetica').fontSize(10).fillColor(COLORS.muted).text(value, doc.page.margins.left + 150, currentY);
   });
+  doc.moveDown(0.5);
 };
 
 const drawTechnicalSection = (doc, data) => {
-  doc.font('Helvetica-Bold').fontSize(13).fillColor(COLORS.primary).text('Paramètres techniques');
-  doc.moveDown(0.5);
+  doc.x = doc.page.margins.left;
+  
+  const startY = doc.y;
+  doc.rect(doc.x, startY, doc.page.width - doc.page.margins.left - doc.page.margins.right, 24).fillColor('#f3f4f6').fill();
+  doc.font('Helvetica-Bold').fontSize(12).fillColor(COLORS.primary).text('Paramètres techniques', doc.x + 8, startY + 6);
+  
+  doc.y = startY + 36;
 
   const rows = [
     ['Culture', data.inputs.cropType],
@@ -205,72 +235,98 @@ const drawTechnicalSection = (doc, data) => {
   ];
 
   rows.forEach(([label, value]) => {
-    doc.font('Helvetica-Bold').fontSize(10).fillColor(COLORS.text).text(`${label}: `, {
-      continued: true,
-    });
-    doc.font('Helvetica').fontSize(10).fillColor(COLORS.muted).text(value);
+    const currentY = doc.y;
+    doc.font('Helvetica-Bold').fontSize(10).fillColor(COLORS.text).text(label, doc.page.margins.left, currentY, { width: 180 });
+    doc.font('Helvetica').fontSize(10).fillColor(COLORS.muted).text(value, doc.page.margins.left + 190, currentY);
   });
+  doc.moveDown(0.5);
 };
 
 const drawMaterialsTable = async (doc, data) => {
-  doc.font('Helvetica-Bold').fontSize(13).fillColor(COLORS.primary).text('Détail matériel');
-  doc.moveDown(0.5);
+  doc.x = doc.page.margins.left;
+  
+  const startY = doc.y;
+  doc.rect(doc.x, startY, doc.page.width - doc.page.margins.left - doc.page.margins.right, 24).fillColor('#f3f4f6').fill();
+  doc.font('Helvetica-Bold').fontSize(12).fillColor(COLORS.primary).text('Détail matériel', doc.x + 8, startY + 6);
+  
+  doc.y = startY + 36;
 
-  const formattedRows = Array.isArray(data.materials) && data.materials.length > 0
+  const formattedDatas = Array.isArray(data.materials) && data.materials.length > 0
     ? data.materials.map((item) => {
         const quantity = Number.isFinite(Number(item.quantity)) ? Number(item.quantity) : 0;
         const unitPriceHT = Number.isFinite(Number(item.unitPriceHT)) ? Number(item.unitPriceHT) : 0;
         const lineTotalHT = Number((quantity * unitPriceHT).toFixed(2));
-        return [
-          safeString(item.name),
-          safeString(item.brand),
-          String(quantity),
-          formatMad(unitPriceHT),
-          formatMad(lineTotalHT),
-        ];
+        return {
+          designation: safeString(item.name),
+          marque: safeString(item.brand),
+          qte: String(quantity),
+          pu: formatMad(unitPriceHT),
+          total: formatMad(lineTotalHT)
+        };
       })
-    : [[
-        'Aucun équipement défini',
-        '—',
-        '0',
-        formatMad(0),
-        formatMad(0),
-      ]];
+    : [{
+        designation: 'Aucun équipement défini',
+        marque: '—',
+        qte: '0',
+        pu: formatMad(0),
+        total: formatMad(0)
+      }];
 
   const table = {
-    headers: ['Désignation', 'Marque', 'Qté', 'PU HT (MAD)', 'Total HT (MAD)'],
-    rows: formattedRows,
+    headers: [
+      { label: 'Désignation', property: 'designation', headerColor: COLORS.background },
+      { label: 'Marque', property: 'marque', headerColor: COLORS.background },
+      { label: 'Qté', property: 'qte', align: 'center', headerColor: COLORS.background },
+      { label: 'PU HT', property: 'pu', align: 'right', headerColor: COLORS.background },
+      { label: 'Total HT', property: 'total', align: 'right', headerColor: COLORS.background }
+    ],
+    datas: formattedDatas,
   };
 
+  const availableWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+  // Explicit column sizes to prevent superimposing text and values
+  // Design: 195, Marque: 110, Qte: 40, PU HT: 75, Total HT: 75 -> Sum = 495
+  const columnsSize = [195, 110, 40, 75, 75];
+
   await doc.table(table, {
-    width: doc.page.width - doc.page.margins.left - doc.page.margins.right,
-    columnsSize: [180, 120, 50, 90, 90],
-    padding: 6,
-    prepareHeader: () => doc.font('Helvetica-Bold').fontSize(10).fillColor(COLORS.primary),
+    width: availableWidth,
+    columnsSize,
+    padding: 4, // reduce padding to save vertical space
+    prepareHeader: () => doc.font('Helvetica-Bold').fontSize(9).fillColor(COLORS.primary),
     prepareRow: () => doc.font('Helvetica').fontSize(9).fillColor(COLORS.text),
-    columnSpacing: 8,
   });
 };
 
 const drawTotalsSection = (doc, data) => {
+  if (doc.y > doc.page.height - doc.page.margins.bottom - 120) {
+    doc.addPage();
+  }
+
   const { totalHT, tva, totalTTC, tvaRate } = data.financial;
-  const startY = doc.y;
-  const boxWidth = 240;
+  const startY = doc.y + 10;
+  const boxWidth = 250;
   const boxX = doc.page.width - doc.page.margins.right - boxWidth;
 
-  doc.rect(boxX, startY, boxWidth, 80).strokeColor(COLORS.border).lineWidth(0.5).stroke();
-  doc.font('Helvetica').fontSize(10).fillColor(COLORS.text).text('Total HT', boxX + 10, startY + 10);
-  doc.font('Helvetica').fontSize(10).fillColor(COLORS.text).text(`TVA (${Math.round(tvaRate * 100)}%)`, boxX + 10, startY + 28);
-  doc.font('Helvetica-Bold').fontSize(11).fillColor(COLORS.text).text('Total TTC', boxX + 10, startY + 48);
+  doc.rect(boxX, startY, boxWidth, 85).fillColor('#f8fafc').fill();
+  doc.rect(boxX, startY, boxWidth, 85).strokeColor(COLORS.border).lineWidth(0.5).stroke();
+  
+  doc.font('Helvetica-Bold').fontSize(10).fillColor(COLORS.muted).text('Total HT', boxX + 15, startY + 15);
+  doc.font('Helvetica-Bold').fontSize(10).fillColor(COLORS.text).text(formatMad(totalHT), boxX + 110, startY + 15, { width: 125, align: 'right' });
+  
+  doc.font('Helvetica').fontSize(10).fillColor(COLORS.muted).text(`TVA (${Math.round(tvaRate * 100)}%)`, boxX + 15, startY + 35);
+  doc.font('Helvetica').fontSize(10).fillColor(COLORS.text).text(formatMad(tva), boxX + 110, startY + 35, { width: 125, align: 'right' });
+  
+  doc.moveTo(boxX + 10, startY + 55).lineTo(boxX + boxWidth - 10, startY + 55).strokeColor(COLORS.border).lineWidth(0.5).stroke();
 
-  doc.font('Helvetica-Bold').fontSize(10).fillColor(COLORS.primary).text(formatMad(totalHT), boxX + 140, startY + 10, { width: 86, align: 'right' });
-  doc.font('Helvetica-Bold').fontSize(10).fillColor(COLORS.primary).text(formatMad(tva), boxX + 140, startY + 28, { width: 86, align: 'right' });
-  doc.font('Helvetica-Bold').fontSize(12).fillColor(COLORS.primary).text(formatMad(totalTTC), boxX + 140, startY + 48, { width: 86, align: 'right' });
+  doc.font('Helvetica-Bold').fontSize(12).fillColor(COLORS.primary).text('Total TTC', boxX + 15, startY + 63);
+  doc.font('Helvetica-Bold').fontSize(14).fillColor(COLORS.primary).text(formatMad(totalTTC), boxX + 110, startY + 61, { width: 125, align: 'right' });
 
-  doc.y = startY + 90;
+  doc.y = startY + 100;
+  doc.x = doc.page.margins.left;
 };
 
 const drawFooter = (doc) => {
+  doc.x = doc.page.margins.left;
   doc.font('Helvetica-Bold').fontSize(11).fillColor(COLORS.text).text('Conditions de validation', { underline: true });
   doc.moveDown(0.4);
   const notes = [

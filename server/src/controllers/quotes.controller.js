@@ -132,6 +132,31 @@ const generateQuotePDF = async (req, res, next) => {
 			throw err;
 		}
 
+		// ---------------------------------------------------------------------------
+		// Parse materials from the stored notes JSON first.
+		// createQuote() serialises the materials array inside notes.materials, so we
+		// need to surface it at quoteData.materials where normalizeQuoteData() reads it.
+		// ---------------------------------------------------------------------------
+		let parsedNotes = {};
+		try {
+			parsedNotes = quote.notes ? JSON.parse(quote.notes) : {};
+		} catch {
+			parsedNotes = {};
+		}
+
+		// Build the materials array: prefer the one saved in notes; fall back to a
+		// representative mock so the PDF is never empty during development.
+		// Each item MUST conform to: { name: string, brand: string, quantity: number, unitPriceHT: number }
+		const materials =
+			Array.isArray(parsedNotes.materials) && parsedNotes.materials.length > 0
+				? parsedNotes.materials
+				: [
+					// Example — "Domaine Oléicole Meknès" project reference data
+					{ name: 'Pompe immergée 1.5kW', brand: 'Grundfos', quantity: 1, unitPriceHT: 18500 },
+					{ name: 'Panneaux Solaires 500W', brand: 'JA Solar', quantity: 6, unitPriceHT: 2800 },
+					{ name: 'Coffret de commande', brand: 'Schneider Electric', quantity: 1, unitPriceHT: 7200 },
+				];
+
 		const quoteData = {
 			quoteId: quote.id,
 			commercialName: quote.user?.email || 'AgriSolar',
@@ -172,6 +197,8 @@ const generateQuotePDF = async (req, res, next) => {
 				basinVolume: quote.basinVolume || 0,
 				pvPower: quote.requiredPower || 0,
 			},
+			// ⬇️ Top-level materials array — read directly by normalizeQuoteData()
+			materials,
 			financial: {
 				totalHT: quote.totalPrice || 0,
 				tva: quote.totalPrice ? quote.totalPrice * 0.2 : 0,

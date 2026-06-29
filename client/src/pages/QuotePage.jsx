@@ -95,11 +95,11 @@ export default function QuotePage() {
 	const onDownloadPdf = async (quote) => {
 		setPdfLoadingId(quote.id);
 		try {
-			const blob = await api.downloadQuotePdf(quote.id);
+			const { blob, filename } = await api.downloadQuotePdf(quote.id);
 			const url = URL.createObjectURL(blob);
 			const link = document.createElement('a');
 			link.href = url;
-			link.download = `devis-${quote.quoteNumber || quote.id}.pdf`;
+			link.download = filename || `devis-${quote.quoteNumber || quote.id}.pdf`;
 			document.body.appendChild(link);
 			link.click();
 			link.remove();

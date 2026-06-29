@@ -107,13 +107,77 @@ model Quote {
 	pumpModel      String
 	basinVolume    Float
 
+	// MVP Fields (optional to preserve backward compatibility)
+	culture        String?
+	surfaceHa      Float?
+	volumeJour     Float?
+	profondeur     Float?
+	typeInstall    String?
+	tensionSysteme String?
+	inclinaison    Float?
+
+	totalHT        Float? @default(0)
+	tva            Float? @default(0)
+	totalTTC       Float? @default(0)
+
 	createdAt DateTime @default(now())
 	updatedAt DateTime @updatedAt
 
 	client Client @relation(fields: [clientId], references: [id])
 	user   User   @relation(fields: [userId], references: [id])
+	items  QuoteItem[]
 
 	@@index([clientId])
 	@@index([status])
 	@@index([deletedAt])
+}
+
+model QuoteItem {
+	id             String   @id @default(uuid())
+	quoteId        String
+	designation    String
+	marque         String?
+	quantite       Int
+	prixUnitaireHT Float
+	totalLigneHT   Float
+
+	quote          Quote    @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+}
+
+model PanneauPhotovoltaique {
+	id            String   @id @default(uuid())
+	marque        String
+	modele        String
+	puissanceCrete Decimal
+	technologie   String
+	tensionVmp    Decimal
+	courantImp    Decimal
+	prixIndicatif Decimal
+	createdAt     DateTime @default(now())
+	updatedAt     DateTime @updatedAt
+}
+
+model PompeHydraulique {
+	id            String   @id @default(uuid())
+	marque        String
+	modele        String
+	puissance     Decimal
+	debitNominal  Decimal
+	hmtMax        Decimal
+	prixIndicatif Decimal
+	createdAt     DateTime @default(now())
+	updatedAt     DateTime @updatedAt
+}
+
+model VariateurSolaire {
+	id               String   @id @default(uuid())
+	marque           String
+	modele           String
+	puissanceMax     Decimal
+	plageMpptMin     Decimal
+	plageMpptMax     Decimal
+	courantSortieMax Decimal
+	prixIndicatif    Decimal
+	createdAt        DateTime @default(now())
+	updatedAt        DateTime @updatedAt
 }

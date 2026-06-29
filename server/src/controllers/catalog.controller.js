@@ -21,8 +21,18 @@ const listCatalog = async (req, res, next) => {
 	}
 };
 
+const listMaterials = async (req, res, next) => {
+	try {
+		const materials = await catalogService.listMaterials();
+		res.json(materials);
+	} catch (err) {
+		next(err);
+	}
+};
+
 module.exports = {
 	listCatalog,
+	listMaterials,
 	createProduct: async (req, res, next) => {
 		try {
 			const name = requireString(req.body?.name, 'name');

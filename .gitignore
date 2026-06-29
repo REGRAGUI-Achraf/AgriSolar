@@ -2,3 +2,4 @@ pgadmin/
 pgadmin/
 .env
 *.log
+node_modules

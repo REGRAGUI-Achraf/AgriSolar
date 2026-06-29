@@ -1,17 +1,50 @@
-import React, { useMemo, useState } from 'react';
+import React, { Suspense, lazy, useEffect, useMemo, useState } from 'react';
 
 import { api, apiClient } from '../services/api';
 import ResultsDashboard from './ResultsDashboard';
 
+const LocationMap = lazy(() => import('./LocationMap'));
+
 const STEP_KEYS = ['location', 'water', 'technical', 'result'];
 
 const CROP_OPTIONS = [
-  { value: 'olivier', label: 'Olivier' },
-  { value: 'agrumes', label: 'Agrumes' },
-  { value: 'maraichage', label: 'Maraîchage' },
+  { value: 'agrumes', label: 'Agrumes (Clémentine, Orange...)' },
+  { value: 'avocatier', label: 'Avocatier' },
+  { value: 'bananier', label: 'Bananier' },
   { value: 'cereales', label: 'Céréales' },
-  { value: 'luzerne', label: 'Luzerne' },
+  { value: 'cultures-sucrieres', label: 'Cultures sucrières (Betterave, Canne à sucre)' },
+  { value: 'fruits-rouges', label: 'Fruits rouges (Fraise, Framboise, Myrtille)' },
+  { value: 'luzerne-fourrage', label: 'Luzerne / Fourrage' },
+  { value: 'maraichage-divers', label: 'Maraîchage divers' },
+  { value: 'olivier', label: 'Olivier' },
+  { value: 'tomate-industrielle', label: 'Tomate industrielle' },
 ];
+
+const WATER_NEEDS_PER_HA = {
+  agrumes: 40,
+  avocatier: 50,
+  bananier: 60,
+  cereales: 20,
+  'cultures-sucrieres': 50,
+  'fruits-rouges': 45,
+  'luzerne-fourrage': 60,
+  'maraichage-divers': 40,
+  olivier: 30,
+  'tomate-industrielle': 45,
+};
+
+const TECH_INSTALLATION_OPTIONS = [
+  { value: 'pompage-direct', label: 'Pompage direct (Puits → Bassin)' },
+  { value: 'reprise', label: 'Reprise (Bassin → Irrigation)' },
+  { value: 'fil-de-leau', label: "Fil de l'eau (Puits → Réseau)" },
+];
+
+const SYSTEM_TENSION_OPTIONS = [
+  { value: '380V', label: 'Triphasé (380V)' },
+  { value: '220V', label: 'Monophasé (220V)' },
+];
+
+const OPTIMAL_TILT_DEGREES = 30;
 
 const isNonEmptyString = (value) => typeof value === 'string' && value.trim().length > 0;
 
@@ -23,15 +56,39 @@ const parseFiniteNumber = (value) => {
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 
+const formatNumber = (value, fractionDigits = 0) => {
+  const num = parseFiniteNumber(value);
+  if (num === null) return '—';
+  return new Intl.NumberFormat('fr-FR', {
+    minimumFractionDigits: fractionDigits,
+    maximumFractionDigits: fractionDigits,
+  }).format(num);
+};
+
+const getOptionLabel = (options, value) => {
+  if (!Array.isArray(options)) return String(value || '—');
+  const option = options.find((item) => item.value === value);
+  return option?.label ?? (value || '—');
+};
+
+const downloadBlob = (blob, filename) => {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+};
+
 const toErrorMessage = (error) => {
   if (!error) return 'Erreur inconnue.';
 
-  // axios cancellation / AbortController
   if (error.name === 'CanceledError' || error.code === 'ERR_CANCELED') {
     return null;
   }
 
-  // axios network errors
   if (error.code === 'ERR_NETWORK') {
     return 'Impossible de joindre le backend (réseau indisponible).';
   }
@@ -104,7 +161,7 @@ const STEPS = [
 ];
 
 const validateStep = (stepIndex, formData, options) => {
-  const { requireClientSelection } = options;
+  const { requireClientSelection, isNewClient } = options;
 
   const errors = {};
 
@@ -112,14 +169,12 @@ const validateStep = (stepIndex, formData, options) => {
   const longitude = parseFiniteNumber(formData.longitude);
 
   if (stepIndex === 0) {
-    if (requireClientSelection) {
-      if (!isNonEmptyString(formData.clientId)) {
-        errors.clientId = 'Sélectionne un client.';
-      }
-    } else {
+    if (isNewClient || !requireClientSelection) {
       if (!isNonEmptyString(formData.clientName)) {
         errors.clientName = 'Renseigne le client.';
       }
+    } else if (!isNonEmptyString(formData.clientId)) {
+      errors.clientId = 'Sélectionne un client.';
     }
 
     if (latitude === null || latitude < -90 || latitude > 90) {
@@ -134,6 +189,7 @@ const validateStep = (stepIndex, formData, options) => {
   if (stepIndex === 1) {
     const irrigationSurface = parseFiniteNumber(formData.irrigationSurface);
     const wellDepth = parseFiniteNumber(formData.wellDepth);
+    const dailyWaterNeed = parseFiniteNumber(formData.dailyWaterNeed);
 
     if (!isNonEmptyString(formData.cropType)) {
       errors.cropType = 'Choisis une culture.';
@@ -146,14 +202,43 @@ const validateStep = (stepIndex, formData, options) => {
     if (wellDepth === null || wellDepth <= 0) {
       errors.wellDepth = 'Profondeur invalide (doit être > 0).';
     }
+
+    if (dailyWaterNeed === null || dailyWaterNeed <= 0) {
+      errors.dailyWaterNeed = 'Volume invalide (doit être > 0).';
+    }
   }
 
   if (stepIndex === 2) {
+    const typeInstallation = formData.typeInstallation;
+    const selectedPanelId = formData.selectedPanelId;
+    const selectedPumpId = formData.selectedPumpId;
+    const selectedInverterId = formData.selectedInverterId;
+    const tension = formData.tension;
     const distanceWellToBasin = parseFiniteNumber(formData.distanceWellToBasin);
     const panelTilt = parseFiniteNumber(formData.panelTilt);
 
+    if (!isNonEmptyString(typeInstallation)) {
+      errors.typeInstallation = "Choisis un type d'installation.";
+    }
+
     if (distanceWellToBasin === null || distanceWellToBasin < 0) {
       errors.distanceWellToBasin = 'Distance invalide (doit être ≥ 0).';
+    }
+
+    if (!isNonEmptyString(selectedPanelId)) {
+      errors.selectedPanelId = 'Choisis un modèle de panneau.';
+    }
+
+    if (!isNonEmptyString(selectedPumpId)) {
+      errors.selectedPumpId = 'Choisis un modèle de pompe.';
+    }
+
+    if (!isNonEmptyString(selectedInverterId)) {
+      errors.selectedInverterId = 'Choisis un variateur.';
+    }
+
+    if (!isNonEmptyString(tension)) {
+      errors.tension = 'Choisis la tension du système.';
     }
 
     if (panelTilt === null || panelTilt < 0 || panelTilt > 90) {
@@ -209,10 +294,44 @@ const getButtonClasses = (variant, disabled) => {
       : 'bg-slate-900 text-white hover:bg-slate-800'
   }`;
 };
-
 const extractClientById = (clients, clientId) => {
   if (!Array.isArray(clients) || clients.length === 0) return null;
   return clients.find((c) => String(c.id) === String(clientId)) ?? null;
+};
+
+const extractClientCoordinates = (client) => {
+  if (!client || typeof client !== 'object') return { latitude: null, longitude: null };
+
+  const latitude = parseFiniteNumber(client.latitude ?? client.lat ?? client.coords?.latitude);
+  const longitude = parseFiniteNumber(client.longitude ?? client.lng ?? client.lon ?? client.coords?.longitude);
+
+  return { latitude, longitude };
+};
+
+const hasValidCoordinates = (latitude, longitude) => {
+  return latitude !== null && longitude !== null && latitude >= -90 && latitude <= 90 && longitude >= -180 && longitude <= 180;
+};
+
+const LocationPreview = ({ latitude, longitude }) => {
+  const isReady = hasValidCoordinates(latitude, longitude);
+
+  return (
+    <Suspense
+      fallback={
+        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+          <div className="border-b border-slate-200 px-4 py-3">
+            <p className="text-sm font-semibold text-slate-900">Aperçu de la position</p>
+            <p className="mt-1 text-xs text-slate-500">Chargement de la carte interactive…</p>
+          </div>
+          <div className="flex h-72 items-center justify-center bg-slate-50 text-sm text-slate-500">
+            Carte en cours de chargement…
+          </div>
+        </div>
+      }
+    >
+      <LocationMap latitude={isReady ? Number(latitude) : null} longitude={isReady ? Number(longitude) : null} />
+    </Suspense>
+  );
 };
 
 const defaultRunSizing = async (payload) => {
@@ -230,9 +349,24 @@ const defaultRunSizing = async (payload) => {
  */
 export default function SizingStepper({ clients = [], onRunSizing }) {
   const requireClientSelection = Array.isArray(clients) && clients.length > 0;
+  const canSelectExistingClient = requireClientSelection;
+
+  const [availablePanels, setAvailablePanels] = useState([]);
+  const [availablePumps, setAvailablePumps] = useState([]);
+  const [availableInverters, setAvailableInverters] = useState([]);
+  const [isLoadingCatalog, setIsLoadingCatalog] = useState(true);
+
+  const [isCalculating, setIsCalculating] = useState(true);
+  const [sizingResult, setSizingResult] = useState(null);
+  const [projectSaving, setProjectSaving] = useState(false);
+  const [projectSavedAt, setProjectSavedAt] = useState(null);
+  const [projectSaveError, setProjectSaveError] = useState(null);
+  const [pdfGenerating, setPdfGenerating] = useState(false);
+  const [pdfError, setPdfError] = useState(null);
 
   const [currentStep, setCurrentStep] = useState(0);
   const [showErrors, setShowErrors] = useState(false);
+  const [isNewClient, setIsNewClient] = useState(false);
 
   const [formData, setFormData] = useState({
     // Step 1
@@ -245,10 +379,17 @@ export default function SizingStepper({ clients = [], onRunSizing }) {
     cropType: '',
     irrigationSurface: '', // ha
     wellDepth: '', // m
+    dailyWaterNeed: '', // m³/jour
 
     // Step 3
+    typeInstallation: '',
+    useOptimalTilt: true,
+    selectedPanelId: '',
+    selectedPumpId: '',
+    selectedInverterId: '',
+    tension: '',
     distanceWellToBasin: '', // m
-    panelTilt: '', // deg
+    panelTilt: String(OPTIMAL_TILT_DEGREES), // deg
   });
 
   const [gpsLoading, setGpsLoading] = useState(false);
@@ -261,12 +402,12 @@ export default function SizingStepper({ clients = [], onRunSizing }) {
   const [quoteSaving, setQuoteSaving] = useState(false);
   const [quoteError, setQuoteError] = useState(null);
   const [savedQuote, setSavedQuote] = useState(null);
-  const [isDownloading, setIsDownloading] = useState(false);
 
-  const options = useMemo(() => ({ requireClientSelection }), [requireClientSelection]);
+  const options = useMemo(() => ({ requireClientSelection, isNewClient }), [requireClientSelection, isNewClient]);
 
   const stepErrors = useMemo(() => validateStep(currentStep, formData, options), [currentStep, formData, options]);
   const stepValid = Object.keys(stepErrors).length === 0;
+  const canGoNext = currentStep === 2 ? stepValid && !isLoadingCatalog : stepValid;
 
   const progress = useMemo(() => {
     const ratio = (currentStep + 1) / STEP_KEYS.length;
@@ -279,15 +420,169 @@ export default function SizingStepper({ clients = [], onRunSizing }) {
     setFormData((prev) => ({ ...prev, ...patch }));
   };
 
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadCatalog = async () => {
+      setIsLoadingCatalog(true);
+
+      try {
+        const response = await apiClient.get('/api/catalog/materials');
+        if (!isMounted) return;
+
+        const mappedPanels = (response.data.panneaux || []).map((p) => ({
+          ...p,
+          name: `${p.marque} ${p.modele}`,
+          power: Number(p.puissanceCrete),
+        }));
+
+        setAvailablePanels(mappedPanels);
+        setAvailablePumps(response.data.pompes || []);
+        setAvailableInverters(response.data.variateurs || []);
+      } catch (err) {
+        console.error('Failed to load materials catalog', err);
+      } finally {
+        if (isMounted) {
+          setIsLoadingCatalog(false);
+        }
+      }
+    };
+
+    loadCatalog();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    const cropType = formData.cropType;
+    const irrigationSurface = parseFiniteNumber(formData.irrigationSurface);
+
+    if (!cropType || !WATER_NEEDS_PER_HA[cropType] || irrigationSurface === null || irrigationSurface <= 0) {
+      return;
+    }
+
+    const waterNeedPerHa = WATER_NEEDS_PER_HA[cropType];
+    const calculatedVolume = Math.ceil(irrigationSurface * waterNeedPerHa);
+
+    updateForm({ dailyWaterNeed: String(calculatedVolume) });
+  }, [formData.cropType, formData.irrigationSurface]);
+
+  useEffect(() => {
+    if (!formData.useOptimalTilt) return;
+
+    if (formData.panelTilt !== String(OPTIMAL_TILT_DEGREES)) {
+      updateForm({ panelTilt: String(OPTIMAL_TILT_DEGREES) });
+    }
+  }, [formData.useOptimalTilt, formData.panelTilt]);
+
+  useEffect(() => {
+    if (currentStep !== 3) return;
+
+    let isActive = true;
+    setIsCalculating(true);
+    setSizingResult(null);
+    setProjectSavedAt(null);
+    setProjectSaveError(null);
+    setPdfError(null);
+
+    const timer = setTimeout(() => {
+      if (!isActive) return;
+
+      const selectedPanel =
+        availablePanels.find((panel) => String(panel.id) === String(formData.selectedPanelId)) ?? availablePanels[0] ?? null;
+      const selectedPump =
+        availablePumps.find((pump) => String(pump.id) === String(formData.selectedPumpId)) ?? availablePumps[0] ?? null;
+      const selectedInverter =
+        availableInverters.find((inv) => String(inv.id) === String(formData.selectedInverterId)) ?? availableInverters[0] ?? null;
+
+      const latitude = parseFiniteNumber(formData.latitude);
+      const longitude = parseFiniteNumber(formData.longitude);
+      const dailyWaterNeed = parseFiniteNumber(formData.dailyWaterNeed) ?? 0;
+      const distanceWellToBasin = parseFiniteNumber(formData.distanceWellToBasin) ?? 0;
+      const panelPowerW = selectedPanel?.power ?? 550;
+
+      const totalPowerKw = Math.max(1, Math.round(((dailyWaterNeed / 45) + (distanceWellToBasin / 150)) * 10) / 10);
+      const panelCount = Math.max(2, Math.ceil((totalPowerKw * 1000) / panelPowerW));
+      const panelSeries = formData.tension === '380V' ? 3 : 2;
+      const panelParallel = Math.max(1, Math.ceil(panelCount / panelSeries));
+
+      setSizingResult({
+        project: {
+          clientLabel: requireClientSelection
+            ? extractClientById(clients, formData.clientId)?.name ?? formData.clientName ?? '—'
+            : formData.clientName || '—',
+          locationLabel:
+            latitude !== null && longitude !== null ? `${formatCoordinate(latitude)}, ${formatCoordinate(longitude)}` : '—',
+          cultureLabel: getOptionLabel(CROP_OPTIONS, formData.cropType),
+          dailyWaterNeed,
+          distanceWellToBasin,
+        },
+        technical: {
+          installationLabel: getOptionLabel(TECH_INSTALLATION_OPTIONS, formData.typeInstallation),
+          totalPowerKw,
+          panelCount,
+          panelSeries,
+          panelParallel,
+          panelLabel: selectedPanel ? `${selectedPanel.name} (${selectedPanel.power} Wc)` : '—',
+          pumpLabel: selectedPump ? `${selectedPump.marque} ${selectedPump.modele} (${selectedPump.puissance} kW)` : '—',
+          inverterLabel: selectedInverter ? `${selectedInverter.marque} ${selectedInverter.modele} (${selectedInverter.puissanceMax} kW)` : '—',
+          tensionLabel: getOptionLabel(SYSTEM_TENSION_OPTIONS, formData.tension),
+          tiltLabel: formData.useOptimalTilt ? `Optimal (${OPTIMAL_TILT_DEGREES}°)` : `${formData.panelTilt || '—'}°`,
+        },
+      });
+
+      setIsCalculating(false);
+    }, 1500);
+
+    return () => {
+      isActive = false;
+      clearTimeout(timer);
+    };
+  }, [
+    availablePanels,
+    availablePumps,
+    currentStep,
+    formData.clientId,
+    formData.clientName,
+    formData.cropType,
+    formData.dailyWaterNeed,
+    formData.distanceWellToBasin,
+    formData.latitude,
+    formData.longitude,
+    formData.panelTilt,
+    formData.selectedPanelId,
+    formData.selectedPumpId,
+    formData.selectedInverterId,
+    formData.tension,
+    formData.typeInstallation,
+    formData.useOptimalTilt,
+    requireClientSelection,
+    clients,
+  ]);
+
   const handleSelectClient = (event) => {
     const selectedId = event.target.value;
     const selected = extractClientById(clients, selectedId);
+    const coordinates = extractClientCoordinates(selected);
 
+    setIsNewClient(false);
     updateForm({
       clientId: selectedId,
       clientName: selected?.name ?? '',
-      latitude: selected?.latitude != null ? String(selected.latitude) : formData.latitude,
-      longitude: selected?.longitude != null ? String(selected.longitude) : formData.longitude,
+      // TODO: si le client est édité plus tard, garder ces coordonnées synchronisées côté fiche client.
+      latitude: coordinates.latitude !== null ? String(coordinates.latitude) : formData.latitude,
+      longitude: coordinates.longitude !== null ? String(coordinates.longitude) : formData.longitude,
+    });
+  };
+
+  const toggleClientMode = () => {
+    setShowErrors(false);
+    setIsNewClient((previous) => {
+      const next = !previous;
+      updateForm({ clientId: '', clientName: '' });
+      return next;
     });
   };
 
@@ -322,8 +617,16 @@ export default function SizingStepper({ clients = [], onRunSizing }) {
         latitude: String(Number(lat.toFixed(6))),
         longitude: String(Number(lon.toFixed(6))),
       });
-    } catch {
-      setGpsError("Impossible de récupérer la position GPS.");
+    } catch (error) {
+      if (error?.code === 1 || error?.name === 'NotAllowedError') {
+        setGpsError('Accès à la géolocalisation refusé. Autorise la permission puis réessaie.');
+      } else if (error?.code === 2) {
+        setGpsError('Position GPS indisponible pour le moment.');
+      } else if (error?.code === 3) {
+        setGpsError('Délai de géolocalisation dépassé.');
+      } else {
+        setGpsError("Impossible de récupérer la position GPS.");
+      }
     } finally {
       setGpsLoading(false);
     }
@@ -336,7 +639,7 @@ export default function SizingStepper({ clients = [], onRunSizing }) {
   };
 
   const goNext = () => {
-    if (!stepValid) {
+    if (!canGoNext) {
       setShowErrors(true);
       return;
     }
@@ -364,13 +667,14 @@ export default function SizingStepper({ clients = [], onRunSizing }) {
     }
 
     const payload = {
-      clientId: requireClientSelection ? formData.clientId : undefined,
-      clientName: requireClientSelection ? undefined : formData.clientName,
+      clientId: !isNewClient && requireClientSelection ? formData.clientId : undefined,
+      clientName: isNewClient || !requireClientSelection ? formData.clientName : undefined,
       latitude: parseFiniteNumber(formData.latitude),
       longitude: parseFiniteNumber(formData.longitude),
       cropType: formData.cropType,
       irrigationSurface: parseFiniteNumber(formData.irrigationSurface),
       wellDepth: parseFiniteNumber(formData.wellDepth),
+      dailyWaterNeed: parseFiniteNumber(formData.dailyWaterNeed),
       distanceWellToBasin: parseFiniteNumber(formData.distanceWellToBasin),
       panelTilt: parseFiniteNumber(formData.panelTilt),
     };
@@ -388,214 +692,346 @@ export default function SizingStepper({ clients = [], onRunSizing }) {
     }
   };
 
-  const saveQuote = async () => {
+  const getCalculatedMaterialsAndPrice = (effectiveResult) => {
+    const dailyWaterNeed = parseFiniteNumber(formData.dailyWaterNeed) ?? 0;
+    const selectedPanel = availablePanels.find((panel) => String(panel.id) === String(formData.selectedPanelId)) ?? null;
+    const selectedPump = availablePumps.find((pump) => String(pump.id) === String(formData.selectedPumpId)) ?? null;
+    const selectedInverter = availableInverters.find((inv) => String(inv.id) === String(formData.selectedInverterId)) ?? null;
+    const panelCount = Math.max(1, Number(effectiveResult.technical?.panelCount || 1));
+    const distanceWellToBasin = parseFiniteNumber(formData.distanceWellToBasin) ?? 0;
+
+    const resultFinancial = effectiveResult.financial ?? {};
+    const baseTotalPrice = Math.max(
+      0,
+      Number.isFinite(resultFinancial.totalHT)
+        ? resultFinancial.totalHT
+        : Number.isFinite(resultFinancial.totalPrice)
+        ? resultFinancial.totalPrice
+        : Math.round((effectiveResult.technical?.totalPowerKw || 0) * 1200),
+    );
+
+    const materials = [];
+
+    if (selectedPanel) {
+      materials.push({
+        name: selectedPanel.name || 'Panneaux photovoltaïques',
+        brand: selectedPanel.marque || 'Panneau',
+        quantity: panelCount,
+        unitPriceHT: Number(selectedPanel.prixIndicatif) || Math.round(baseTotalPrice * 0.42 / panelCount),
+      });
+    } else if (effectiveResult.materials?.find(m => m.category === 'PANEL')) {
+      const p = effectiveResult.materials.find(m => m.category === 'PANEL');
+      materials.push({
+        name: p.name || 'Panneaux photovoltaïques',
+        brand: p.brand || 'Panneau',
+        quantity: p.quantity || panelCount,
+        unitPriceHT: p.unitPrice || p.unitPriceHT || Math.round(baseTotalPrice * 0.42 / panelCount),
+      });
+    }
+
+    if (selectedPump) {
+      materials.push({
+        name: `${selectedPump.marque} ${selectedPump.modele}`,
+        brand: selectedPump.marque || 'Pompe Hydraulique',
+        quantity: 1,
+        unitPriceHT: Number(selectedPump.prixIndicatif) || 15000,
+      });
+    } else if (effectiveResult.materials?.find(m => m.category === 'PUMP')) {
+      const p = effectiveResult.materials.find(m => m.category === 'PUMP');
+      materials.push({
+        name: p.name || 'Pompe',
+        brand: p.brand || '—',
+        quantity: p.quantity || 1,
+        unitPriceHT: p.unitPrice || p.unitPriceHT || 15000,
+      });
+    }
+
+    if (selectedInverter) {
+      materials.push({
+        name: `${selectedInverter.marque} ${selectedInverter.modele}`,
+        brand: selectedInverter.marque,
+        quantity: 1,
+        unitPriceHT: Number(selectedInverter.prixIndicatif) || 5000,
+      });
+    } else if (effectiveResult.materials?.find(m => m.category === 'INVERTER')) {
+      const p = effectiveResult.materials.find(m => m.category === 'INVERTER');
+      materials.push({
+        name: p.name || 'Variateur',
+        brand: p.brand || '—',
+        quantity: p.quantity || 1,
+        unitPriceHT: p.unitPrice || p.unitPriceHT || 5000,
+      });
+    }
+    
+    // Calculate total materials price to infer accessories price
+    const materialsTotal = materials.reduce((sum, item) => sum + (item.quantity * item.unitPriceHT), 0);
+    const accessoriesPrice = Math.max(0, baseTotalPrice - materialsTotal);
+
+    materials.push({
+      name: 'Accessoires & Tuyauterie',
+      brand: `Distance ${distanceWellToBasin} m`,
+      quantity: 1,
+      unitPriceHT: accessoriesPrice,
+    });
+
+    const realTotalHT = materialsTotal + accessoriesPrice;
+
+    return {
+      materials,
+      realTotalHT,
+      selectedPanel,
+      selectedPump,
+      selectedInverter,
+      panelCount,
+      distanceWellToBasin,
+      dailyWaterNeed
+    };
+  };
+
+  const buildQuotePayload = () => {
     const selectedClient = requireClientSelection ? extractClientById(clients, formData.clientId) : null;
 
     if (!selectedClient?.id) {
-      setQuoteError('Sélectionne un client enregistré pour sauvegarder le devis.');
-      return;
+      throw new Error('Sélectionne un client enregistré pour sauvegarder le devis.');
     }
 
-    if (!result) {
-      setQuoteError('Lance d’abord un calcul avant de sauvegarder le devis.');
-      return;
+    const effectiveResult = result || sizingResult;
+    if (!effectiveResult) {
+      throw new Error('Le dimensionnement doit être calculé avant de générer le devis.');
     }
 
+    const {
+      materials,
+      realTotalHT,
+      selectedPanel,
+      selectedPump,
+      selectedInverter,
+      panelCount,
+      distanceWellToBasin,
+      dailyWaterNeed
+    } = getCalculatedMaterialsAndPrice(effectiveResult);
+
+    const payload = {
+      clientId: selectedClient.id,
+      inputs: {
+        clientId: selectedClient.id,
+        cropType: formData.cropType,
+        wellDepth: parseFiniteNumber(formData.wellDepth),
+        irrigationSurface: parseFiniteNumber(formData.irrigationSurface),
+        dailyWaterNeed,
+        typeInstallation: formData.typeInstallation,
+        useOptimalTilt: formData.useOptimalTilt,
+        selectedPanelId: formData.selectedPanelId,
+        selectedPanelLabel: selectedPanel?.name || effectiveResult.technical?.panelLabel || 'Panneau photovoltaïque',
+        selectedPumpId: formData.selectedPumpId,
+        selectedPumpLabel: selectedPump ? `${selectedPump.marque} ${selectedPump.modele}` : 'Pompe',
+        selectedInverterId: formData.selectedInverterId,
+        selectedInverterLabel: selectedInverter ? `${selectedInverter.marque} ${selectedInverter.modele}` : 'Variateur',
+        tension: formData.tension,
+        distanceWellToBasin,
+        panelTilt: parseFiniteNumber(formData.panelTilt),
+        latitude: parseFiniteNumber(formData.latitude),
+        longitude: parseFiniteNumber(formData.longitude),
+      },
+      result: {
+        panelCount: panelCount,
+        pumpModel: selectedPump ? `${selectedPump.marque} ${selectedPump.modele}` : effectiveResult.technical?.pumpLabel,
+        inverterModel: selectedInverter ? `${selectedInverter.marque} ${selectedInverter.modele}` : null,
+        basinVolume: effectiveResult.basinVolume ?? Math.max(10, Math.ceil(dailyWaterNeed * 2.5)),
+        financial: {
+          totalHT: realTotalHT,
+          tva: Math.round(realTotalHT * 0.2),
+          totalTTC: Math.round(realTotalHT * 1.2),
+        },
+        materials: materials,
+        roi: effectiveResult.roi ?? null,
+      },
+      totalPrice: realTotalHT,
+      dailyWaterNeed,
+      requiredPower: effectiveResult.technical?.totalPowerKw ?? 0,
+      notes: JSON.stringify({
+        typeInstallation: formData.typeInstallation,
+        materials: materials,
+      }),
+    };
+
+    return { payload, selectedClient };
+  };
+
+  const saveQuote = async () => {
     setQuoteError(null);
     setQuoteSaving(true);
-    try {
-      const payload = {
-        clientId: selectedClient.id,
-        inputs: {
-          clientId: selectedClient.id,
-          cropType: formData.cropType,
-          wellDepth: parseFiniteNumber(formData.wellDepth),
-          irrigationSurface: parseFiniteNumber(formData.irrigationSurface),
-          dailyWaterNeed: result?.inputs?.dailyWaterNeed,
-          requiredPower: result?.financial?.requiredPower,
-        },
-        result: {
-          panelCount: result.panelCount,
-          pumpModel: result.pumpModel,
-          basinVolume: result.basinVolume,
-          financial: result.financial,
-          materials: result.materials,
-          roi: result.roi,
-        },
-        totalPrice: result?.financial?.totalHT ?? result?.financial?.totalTTC,
-        dailyWaterNeed: result?.inputs?.dailyWaterNeed,
-        requiredPower: result?.financial?.requiredPower,
-      };
 
+    try {
+      const { payload } = buildQuotePayload();
       const created = await api.createQuote(payload);
       setSavedQuote(created);
+      setProjectSavedAt(new Date());
+      return created;
     } catch (err) {
-      const message = toErrorMessage(err);
-      if (message) setQuoteError(message);
+      const message = toErrorMessage(err) || 'Impossible d’enregistrer le projet.';
+      setQuoteError(message);
+      return null;
     } finally {
       setQuoteSaving(false);
     }
   };
 
   const handleDownloadPDF = async () => {
-    if (!result) {
-      setQuoteError('Lance d’abord un calcul avant de générer le devis PDF.');
-      return;
-    }
-
-    if (requireClientSelection && !formData.clientId) {
-      setQuoteError('Sélectionne un client enregistré avant de générer le devis PDF.');
-      return;
-    }
-
-    setQuoteError(null);
-    setIsDownloading(true);
+    setPdfError(null);
+    setPdfGenerating(true);
 
     try {
-      const payload = {
-        clientId: requireClientSelection ? formData.clientId : undefined,
-        clientName: requireClientSelection ? undefined : formData.clientName,
-        latitude: parseFiniteNumber(formData.latitude),
-        longitude: parseFiniteNumber(formData.longitude),
-        cropType: formData.cropType,
-        irrigationSurface: parseFiniteNumber(formData.irrigationSurface),
-        wellDepth: parseFiniteNumber(formData.wellDepth),
-        distanceWellToBasin: parseFiniteNumber(formData.distanceWellToBasin),
-        panelTilt: parseFiniteNumber(formData.panelTilt),
-        result: {
-          panelCount: result.panelCount,
-          pumpModel: result.pumpModel,
-          basinVolume: result.basinVolume,
-          financial: result.financial,
-          materials: result.materials,
-          roi: result.roi,
-        },
-        totalPrice: result?.financial?.totalHT ?? result?.financial?.totalTTC,
-        dailyWaterNeed: result?.inputs?.dailyWaterNeed,
-        requiredPower: result?.financial?.requiredPower,
-      };
+      let quote = savedQuote;
 
-      const createdQuote = await api.createQuote(payload);
-      setSavedQuote(createdQuote);
+      if (!quote?.id) {
+        quote = await saveQuote();
+      }
 
-      const { blob, filename } = await api.downloadQuotePdf(createdQuote.id);
+      if (!quote?.id) {
+        return;
+      }
+
+      const { blob, filename } = await api.downloadQuotePdf(quote.id);
       if (!blob) {
-        throw new Error('Le fichier PDF n’a pas pu être généré.');
+        throw new Error('Le PDF n’a pas pu être généré.');
       }
 
-      const url = window.URL.createObjectURL(blob);
-      const anchor = document.createElement('a');
-      anchor.href = url;
-      anchor.download = filename;
-      anchor.style.display = 'none';
-      document.body.appendChild(anchor);
-      anchor.click();
-      document.body.removeChild(anchor);
-      window.URL.revokeObjectURL(url);
+      downloadBlob(blob, filename);
     } catch (err) {
-      const message = toErrorMessage(err);
-      if (message) {
-        setQuoteError(message);
-      } else {
-        alert('Une erreur est survenue lors de la génération du devis PDF.');
-      }
+      const message = toErrorMessage(err) || 'Impossible de générer le devis PDF.';
+      setPdfError(message);
     } finally {
-      setIsDownloading(false);
+      setPdfGenerating(false);
     }
   };
 
   const renderStepContent = () => {
     if (current.key === 'location') {
+      const selectedClient = requireClientSelection ? extractClientById(clients, formData.clientId) : null;
+      const selectedCoordinates = extractClientCoordinates(selectedClient);
+      const liveLatitude = parseFiniteNumber(formData.latitude);
+      const liveLongitude = parseFiniteNumber(formData.longitude);
+      const previewLatitude = hasValidCoordinates(liveLatitude, liveLongitude) ? liveLatitude : selectedCoordinates.latitude;
+      const previewLongitude = hasValidCoordinates(liveLatitude, liveLongitude) ? liveLongitude : selectedCoordinates.longitude;
+
       return (
         <div className="space-y-4">
-          {requireClientSelection ? (
-            <Field
-              label="Client"
-              required
-              error={showErrors ? stepErrors.clientId : null}
-              hint="Sélectionne le client afin d'utiliser ses coordonnées (si disponibles)."
-            >
-              <select
-                className={`block w-full rounded-lg border bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-400 ${
-                  showErrors && stepErrors.clientId ? 'border-red-300' : 'border-slate-200'
-                }`}
-                value={formData.clientId}
-                onChange={handleSelectClient}
-              >
-                <option value="">— Choisir un client —</option>
-                {clients.map((c) => (
-                  <option key={String(c.id)} value={String(c.id)}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-            </Field>
-          ) : (
-            <Field label="Client" required error={showErrors ? stepErrors.clientName : null}>
-              <input
-                type="text"
-                className={`block w-full rounded-lg border bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-400 ${
-                  showErrors && stepErrors.clientName ? 'border-red-300' : 'border-slate-200'
-                }`}
-                placeholder="Nom du client"
-                value={formData.clientName}
-                onChange={(e) => updateForm({ clientName: e.target.value })}
-              />
-            </Field>
-          )}
+          <div>
+            <div className="flex items-center justify-between gap-3">
+              <label className="block text-sm font-medium text-slate-900">
+                Client<span className="text-red-600"> *</span>
+              </label>
 
-          <div className="flex flex-wrap items-center gap-3">
+              {canSelectExistingClient ? (
+                <button
+                  type="button"
+                  onClick={toggleClientMode}
+                  className="text-xs font-medium text-slate-600 transition-colors hover:text-slate-900"
+                >
+                  {isNewClient ? 'Client existant' : '+ Nouveau client'}
+                </button>
+              ) : null}
+            </div>
+
+            <div className="mt-1">
+              {canSelectExistingClient && !isNewClient ? (
+                <select
+                  className={`block w-full rounded-lg border bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-400 ${
+                    showErrors && stepErrors.clientId ? 'border-red-300' : 'border-slate-200'
+                  }`}
+                  value={formData.clientId}
+                  onChange={handleSelectClient}
+                >
+                  <option value="">— Choisir un client —</option>
+                  {clients.map((c) => (
+                    <option key={String(c.id)} value={String(c.id)}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  type="text"
+                  className={`block w-full rounded-lg border bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-400 ${
+                    showErrors && stepErrors.clientName ? 'border-red-300' : 'border-slate-200'
+                  }`}
+                  placeholder="Nom du nouveau client..."
+                  value={formData.clientName}
+                  onChange={(e) => {
+                    setIsNewClient(true);
+                    updateForm({ clientId: '', clientName: e.target.value });
+                  }}
+                />
+              )}
+            </div>
+
+            {canSelectExistingClient && !isNewClient ? (
+              <p className="mt-1 text-xs text-slate-500">
+                Sélectionne un client existant pour reprendre ses coordonnées automatiquement.
+              </p>
+            ) : null}
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+            <div>
+              <p className="text-sm font-medium text-slate-900">Coordonnées de localisation</p>
+              <p className="text-xs text-slate-600">Latitude/Longitude sont requises pour le calcul PVGIS.</p>
+            </div>
             <button
               type="button"
               onClick={handleGetGps}
               disabled={gpsLoading}
               className={getButtonClasses('secondary', gpsLoading)}
             >
-              {gpsLoading ? 'Récupération GPS...' : 'Récupérer GPS'}
+              {gpsLoading ? '📍 Localisation…' : '📍 Me localiser'}
             </button>
-            <p className="text-xs text-slate-600">Latitude/Longitude requises pour le calcul PVGIS.</p>
           </div>
 
           {gpsError ? (
             <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">{gpsError}</div>
           ) : null}
 
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Field
-              label="Latitude"
-              required
-              error={showErrors ? stepErrors.latitude : null}
-              hint="Ex: 33.8935"
-            >
-              <input
-                type="number"
-                step="0.000001"
-                inputMode="decimal"
-                className={`block w-full rounded-lg border bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-400 ${
-                  showErrors && stepErrors.latitude ? 'border-red-300' : 'border-slate-200'
-                }`}
-                value={formData.latitude}
-                onChange={(e) => updateForm({ latitude: e.target.value })}
-              />
-            </Field>
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1.2fr_0.8fr]">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <Field
+                label="Latitude"
+                required
+                error={showErrors ? stepErrors.latitude : null}
+                hint="Ex: 33.8935"
+              >
+                <input
+                  type="number"
+                  step="0.000001"
+                  inputMode="decimal"
+                  className={`block w-full rounded-lg border bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-400 ${
+                    showErrors && stepErrors.latitude ? 'border-red-300' : 'border-slate-200'
+                  }`}
+                  value={formData.latitude}
+                  onChange={(e) => updateForm({ latitude: e.target.value })}
+                />
+              </Field>
 
-            <Field
-              label="Longitude"
-              required
-              error={showErrors ? stepErrors.longitude : null}
-              hint="Ex: -5.5473"
-            >
-              <input
-                type="number"
-                step="0.000001"
-                inputMode="decimal"
-                className={`block w-full rounded-lg border bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-400 ${
-                  showErrors && stepErrors.longitude ? 'border-red-300' : 'border-slate-200'
-                }`}
-                value={formData.longitude}
-                onChange={(e) => updateForm({ longitude: e.target.value })}
-              />
-            </Field>
+              <Field
+                label="Longitude"
+                required
+                error={showErrors ? stepErrors.longitude : null}
+                hint="Ex: -5.5473"
+              >
+                <input
+                  type="number"
+                  step="0.000001"
+                  inputMode="decimal"
+                  className={`block w-full rounded-lg border bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-400 ${
+                    showErrors && stepErrors.longitude ? 'border-red-300' : 'border-slate-200'
+                  }`}
+                  value={formData.longitude}
+                  onChange={(e) => updateForm({ longitude: e.target.value })}
+                />
+              </Field>
+            </div>
+
+            <LocationPreview latitude={previewLatitude} longitude={previewLongitude} />
           </div>
         </div>
       );
@@ -658,6 +1094,24 @@ export default function SizingStepper({ clients = [], onRunSizing }) {
               />
             </Field>
           </div>
+
+          <Field
+            label="Volume journalier (m³/jour)"
+            required
+            error={showErrors ? stepErrors.dailyWaterNeed : null}
+            hint="Calculé automatiquement (modifiable)"
+          >
+            <input
+              type="number"
+              step="0.1"
+              inputMode="decimal"
+              className={`block w-full rounded-lg border bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-400 ${
+                showErrors && stepErrors.dailyWaterNeed ? 'border-red-300' : 'border-slate-200'
+              }`}
+              value={formData.dailyWaterNeed}
+              onChange={(e) => updateForm({ dailyWaterNeed: e.target.value })}
+            />
+          </Field>
         </div>
       );
     }
@@ -665,44 +1119,208 @@ export default function SizingStepper({ clients = [], onRunSizing }) {
     if (current.key === 'technical') {
       return (
         <div className="space-y-4">
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Field
-              label="Distance puits → bassin (m)"
-              required
-              error={showErrors ? stepErrors.distanceWellToBasin : null}
-              hint="Distance horizontale (approximative)"
-            >
-              <input
-                type="number"
-                step="1"
-                inputMode="numeric"
-                className={`block w-full rounded-lg border bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-400 ${
-                  showErrors && stepErrors.distanceWellToBasin ? 'border-red-300' : 'border-slate-200'
-                }`}
-                value={formData.distanceWellToBasin}
-                onChange={(e) => updateForm({ distanceWellToBasin: e.target.value })}
-              />
-            </Field>
+          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="mb-4">
+              <h4 className="text-sm font-semibold text-slate-900">A. Configuration Hydraulique</h4>
+              <p className="mt-1 text-xs text-slate-500">Paramètres de circulation et de transfert de l’eau.</p>
+            </div>
 
-            <Field
-              label="Inclinaison souhaitée des panneaux (°)"
-              required
-              error={showErrors ? stepErrors.panelTilt : null}
-              hint="Valeur typique: 20–35°"
-            >
-              <input
-                type="number"
-                step="1"
-                min="0"
-                max="90"
-                inputMode="numeric"
-                className={`block w-full rounded-lg border bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-400 ${
-                  showErrors && stepErrors.panelTilt ? 'border-red-300' : 'border-slate-200'
-                }`}
-                value={formData.panelTilt}
-                onChange={(e) => updateForm({ panelTilt: e.target.value })}
-              />
-            </Field>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <Field
+                label="Type d'installation"
+                required
+                error={showErrors ? stepErrors.typeInstallation : null}
+              >
+                <select
+                  className={`block w-full rounded-lg border bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-400 ${
+                    showErrors && stepErrors.typeInstallation ? 'border-red-300' : 'border-slate-200'
+                  }`}
+                  value={formData.typeInstallation}
+                  onChange={(e) => updateForm({ typeInstallation: e.target.value })}
+                >
+                  <option value="">— Choisir un type d'installation —</option>
+                  {TECH_INSTALLATION_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+
+              <Field
+                label="Distance puits → bassin (m)"
+                required
+                error={showErrors ? stepErrors.distanceWellToBasin : null}
+                hint="Distance horizontale (approximative)"
+              >
+                <input
+                  type="number"
+                  step="1"
+                  inputMode="numeric"
+                  className={`block w-full rounded-lg border bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-400 ${
+                    showErrors && stepErrors.distanceWellToBasin ? 'border-red-300' : 'border-slate-200'
+                  }`}
+                  value={formData.distanceWellToBasin}
+                  onChange={(e) => updateForm({ distanceWellToBasin: e.target.value })}
+                />
+              </Field>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="mb-4">
+              <h4 className="text-sm font-semibold text-slate-900">B. Panneaux & Inclinaison</h4>
+              <p className="mt-1 text-xs text-slate-500">Sélection du module PV et réglage d’angle.</p>
+            </div>
+
+            <div className="space-y-4">
+              <Field
+                label="Modèle de Panneau"
+                required
+                error={showErrors ? stepErrors.selectedPanelId : null}
+              >
+                <select
+                  className={`block w-full rounded-lg border bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-400 ${
+                    showErrors && stepErrors.selectedPanelId ? 'border-red-300' : 'border-slate-200'
+                  }`}
+                  value={formData.selectedPanelId}
+                  onChange={(e) => updateForm({ selectedPanelId: e.target.value })}
+                  disabled={isLoadingCatalog}
+                >
+                  {isLoadingCatalog ? (
+                    <option value="">Chargement...</option>
+                  ) : (
+                    <>
+                      <option value="">— Choisir un panneau —</option>
+                      {availablePanels.map((panel) => (
+                        <option key={panel.id} value={panel.id}>
+                          {panel.name} — {panel.power} Wc
+                        </option>
+                      ))}
+                    </>
+                  )}
+                </select>
+              </Field>
+
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                <label className="flex items-center gap-3 text-sm font-medium text-slate-900">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-400"
+                    checked={formData.useOptimalTilt}
+                    onChange={(e) => updateForm({ useOptimalTilt: e.target.checked })}
+                  />
+                  Utiliser l'inclinaison optimale (30°)
+                </label>
+              </div>
+
+              <Field
+                label="Inclinaison souhaitée des panneaux (°)"
+                required
+                error={showErrors ? stepErrors.panelTilt : null}
+                hint="Valeur typique: 20–35°"
+              >
+                <input
+                  type="number"
+                  step="1"
+                  min="0"
+                  max="90"
+                  inputMode="numeric"
+                  disabled={formData.useOptimalTilt}
+                  className={`block w-full rounded-lg border bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-400 disabled:cursor-not-allowed disabled:bg-slate-100 ${
+                    showErrors && stepErrors.panelTilt ? 'border-red-300' : 'border-slate-200'
+                  }`}
+                  value={formData.useOptimalTilt ? String(OPTIMAL_TILT_DEGREES) : formData.panelTilt}
+                  onChange={(e) => updateForm({ panelTilt: e.target.value, useOptimalTilt: false })}
+                />
+              </Field>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="mb-4">
+              <h4 className="text-sm font-semibold text-slate-900">C. Pompe & Électricité</h4>
+              <p className="mt-1 text-xs text-slate-500">Choix de la pompe, du variateur et de la tension.</p>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <Field
+                label="Modèle de la Pompe"
+                required
+                error={showErrors ? stepErrors.selectedPumpId : null}
+              >
+                <select
+                  className={`block w-full rounded-lg border bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-400 ${
+                    showErrors && stepErrors.selectedPumpId ? 'border-red-300' : 'border-slate-200'
+                  }`}
+                  value={formData.selectedPumpId}
+                  onChange={(e) => updateForm({ selectedPumpId: e.target.value })}
+                  disabled={isLoadingCatalog}
+                >
+                  {isLoadingCatalog ? (
+                    <option value="">Chargement...</option>
+                  ) : (
+                    <>
+                      <option value="">— Choisir une pompe —</option>
+                      {availablePumps.map((pump) => (
+                        <option key={pump.id} value={pump.id}>
+                          {pump.marque} {pump.modele} ({Number(pump.puissance)} kW)
+                        </option>
+                      ))}
+                    </>
+                  )}
+                </select>
+              </Field>
+
+              <Field
+                label="Modèle du Variateur"
+                required
+                error={showErrors ? stepErrors.selectedInverterId : null}
+              >
+                <select
+                  className={`block w-full rounded-lg border bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-400 ${
+                    showErrors && stepErrors.selectedInverterId ? 'border-red-300' : 'border-slate-200'
+                  }`}
+                  value={formData.selectedInverterId}
+                  onChange={(e) => updateForm({ selectedInverterId: e.target.value })}
+                  disabled={isLoadingCatalog}
+                >
+                  {isLoadingCatalog ? (
+                    <option value="">Chargement...</option>
+                  ) : (
+                    <>
+                      <option value="">— Choisir un variateur —</option>
+                      {availableInverters.map((inv) => (
+                        <option key={inv.id} value={inv.id}>
+                          {inv.marque} {inv.modele} ({Number(inv.puissanceMax)} kW)
+                        </option>
+                      ))}
+                    </>
+                  )}
+                </select>
+              </Field>
+
+              <Field
+                label="Tension du système"
+                required
+                error={showErrors ? stepErrors.tension : null}
+              >
+                <select
+                  className={`block w-full rounded-lg border bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-400 ${
+                    showErrors && stepErrors.tension ? 'border-red-300' : 'border-slate-200'
+                  }`}
+                  value={formData.tension}
+                  onChange={(e) => updateForm({ tension: e.target.value })}
+                >
+                  <option value="">— Choisir une tension —</option>
+                  {SYSTEM_TENSION_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            </div>
           </div>
         </div>
       );
@@ -765,15 +1383,6 @@ export default function SizingStepper({ clients = [], onRunSizing }) {
             >
               {quoteSaving ? 'Sauvegarde…' : 'Sauvegarder le devis'}
             </button>
-            <button
-              type="button"
-              onClick={handleDownloadPDF}
-              disabled={isDownloading}
-              className={getButtonClasses('primary', isDownloading)}
-              title={isDownloading ? 'Génération en cours…' : 'Générer le devis PDF'}
-            >
-              {isDownloading ? 'Génération en cours…' : 'Générer le devis PDF'}
-            </button>
             <p className="text-xs text-slate-600">
               Le devis sera enregistré dans l’historique et disponible en PDF.
             </p>
@@ -798,7 +1407,30 @@ export default function SizingStepper({ clients = [], onRunSizing }) {
         ) : null}
 
         {result ? (
-          <ResultsDashboard result={result} client={clientForDashboard} horizonYears={10} />
+          (() => {
+            const { materials, realTotalHT, selectedPump, selectedInverter } = getCalculatedMaterialsAndPrice(result);
+            
+            const dashboardResult = {
+              ...result,
+              pumpModel: selectedPump ? `${selectedPump.marque} ${selectedPump.modele}` : result.pumpModel,
+              inverterModel: selectedInverter ? `${selectedInverter.marque} ${selectedInverter.modele}` : (result.inverterModel || null),
+              financial: {
+                ...result.financial,
+                totalHT: realTotalHT,
+                tva: Math.round(realTotalHT * 0.2),
+                totalTTC: Math.round(realTotalHT * 1.2),
+              }
+            };
+
+            return (
+              <ResultsDashboard
+                result={dashboardResult}
+                client={clientForDashboard}
+                horizonYears={10}
+                onDownloadPdf={handleDownloadPDF}
+              />
+            );
+          })()
         ) : null}
       </div>
     );
@@ -809,7 +1441,7 @@ export default function SizingStepper({ clients = [], onRunSizing }) {
       <header>
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
-            <h2 className="text-lg font-semibold text-slate-900">Dimensionnement (Stepper)</h2>
+            <h2 className="text-lg font-semibold text-slate-900">Dimensionnement</h2>
             <p className="mt-1 text-sm text-slate-600">
               Étape {currentStep + 1} / {STEPS.length} — {current.title}
             </p>
@@ -867,27 +1499,44 @@ export default function SizingStepper({ clients = [], onRunSizing }) {
       </div>
 
       <footer className="mt-6 flex items-center justify-between gap-3">
-        <button
-          type="button"
-          onClick={goPrev}
-          disabled={currentStep === 0}
-          className={getButtonClasses('secondary', currentStep === 0)}
-        >
-          Précédent
-        </button>
+        <div>
+          {currentStep > 0 ? (
+            <button type="button" onClick={goPrev} className={getButtonClasses('secondary', false)}>
+              Précédent
+            </button>
+          ) : null}
+        </div>
 
         {currentStep < STEPS.length - 1 ? (
           <button
             type="button"
             onClick={goNext}
-            disabled={!stepValid}
-            className={getButtonClasses('primary', !stepValid)}
-            title={!stepValid ? 'Complète les champs obligatoires pour continuer.' : undefined}
+            disabled={!canGoNext}
+            className={getButtonClasses('primary', !canGoNext)}
+            title={!canGoNext ? 'Complète les champs obligatoires pour continuer.' : undefined}
           >
             Suivant
           </button>
         ) : (
-          <div className="text-sm text-slate-600">Vérifie le résumé avant calcul.</div>
+          <div className="flex flex-wrap items-center justify-end gap-3">
+            <button
+              type="button"
+              onClick={saveQuote}
+              disabled={projectSaving || isCalculating}
+              className={getButtonClasses('secondary', projectSaving || isCalculating)}
+            >
+              {projectSaving ? 'Enregistrement…' : 'Enregistrer le projet'}
+            </button>
+            <button
+              type="button"
+              onClick={handleDownloadPDF}
+              disabled={pdfGenerating || isCalculating || (!result && !savedQuote)}
+              className={getButtonClasses('primary', pdfGenerating || isCalculating || (!result && !savedQuote))}
+              title={!result && !savedQuote ? 'Exécute le calcul puis enregistre le devis pour générer le PDF.' : undefined}
+            >
+              {pdfGenerating ? 'Génération…' : 'Générer le Devis PDF'}
+            </button>
+          </div>
         )}
       </footer>
     </section>
