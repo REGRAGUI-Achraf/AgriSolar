@@ -1,371 +1,227 @@
 # AgriSolar
 
-## 1) Présentation
+## 1) Résumé exécutif
 
-**AgriSolar** est une Progressive Web App (PWA) destinée au **dimensionnement d’installations de pompage solaire** et de **bassins d’irrigation**.
+**AgriSolar** est une application web conçue pour le **dimensionnement d’installations de pompage solaire** et de **bassins d’irrigation**. Elle combine une interface Progressive Web App, une API métier et une base de données relationnelle pour proposer une expérience complète d’étude, de chiffrage et d’export.
 
-Objectifs principaux :
-- Aider à **sélectionner** et **dimensionner** les composants (panneaux PV, pompe, contrôleur/variateur, tuyauterie, bassin, accessoires).
-- Produire des **résultats reproductibles** (hypothèses, paramètres, sorties) et des **scénarios comparatifs**.
-- Permettre un **mode offline** pour travailler sur le terrain.
-- Générer un **devis PDF** à partir d’un projet dimensionné.
-
-> Remarque (mise à jour) : le dépôt contient désormais une **implémentation exécutable en dev** (client + server + Postgres).
-> Pour l’état d’avancement “réel” (ce qui est implémenté vs prévu), voir `progress.md`.
+L’objectif du projet est d’offrir un outil métier capable de transformer des besoins hydrauliques et des données de site en une solution technico-économique claire, reproductible et exportable.
 
 ---
 
-## 2) Stack technique
+## 2) Contexte et objectifs
 
-### Frontend (Client)
-- **React.js** (via **Vite**)
-- **Tailwind CSS**
-- **PWA** : manifest + service worker
-- **Offline** : stockage local via **IndexedDB**
+### 2.1 Contexte
+Les installations d’irrigation solaire sont de plus en plus demandées dans les zones agricoles isolées, où l’accès à l’électricité est limité ou coûteux. Le dimensionnement de ces installations nécessite des calculs précis, une bonne connaissance du matériel et la prise en compte des conditions locales.
 
-### Backend (Server)
-- **Node.js** + **Express**
-- Architecture **par couches** (routes → controllers → services)
-- Services dédiés à la **logique mathématique** (dimensionnement, hydraulique, PVGIS)
+### 2.2 Objectifs du projet
 
-### Base de données
-- **PostgreSQL**
-- **Prisma ORM** (prévu via `server/prisma/schema.prisma`)
-
-> Alternative possible (si vous préférez) : Sequelize. La structure peut être adaptée, mais Prisma est privilégié ici car un fichier `.prisma` est déjà prévu.
-
-### Infrastructure
-- **Docker**
-- **Docker Compose** (orchestration des services : client, server, postgres)
+- Proposer un **outil d’aide à la décision** pour les bureaux d’études et installateurs.
+- Faciliter le **dimensionnement des pompes solaires**, du champ PV et du bassin d’irrigation.
+- Assurer la **traçabilité** des hypothèses, paramètres et résultats.
+- Permettre la **comparaison de scénarios** techniques et économiques.
+- Fournir un **devis exportable** pour le client.
+- Supporter un **mode offline** pour une utilisation sur le terrain.
 
 ---
 
-## 3) Architecture du système
+## 3) Idée du projet (explication détaillée)
 
-### Vue d’ensemble
-- Le **client** fournit l’UI, gère la PWA, le cache offline, et consomme l’API.
-- Le **server** expose une API REST (ou JSON) pour :
-  - gérer le catalogue,
-  - exécuter/valider certains calculs,
-  - appeler l’API PVGIS,
-  - générer des PDF,
-  - synchroniser les données offline.
-- PostgreSQL stocke le catalogue, les projets, les résultats et l’historique.
+### 3.1 Vision
+AgriSolar est imaginé comme un outil métier qui réduit les risques de conception et accélère les décisions. Le projet vise à remplacer des processus papier ou des feuilles de calcul dispersées par une interface cohérente, qui relie directement:
+- les besoins en eau,
+- les caractéristiques du site,
+- les données photovoltaïques,
+- le catalogue produit,
+- le chiffrage économique.
 
-### Arborescence monorepo (client / server)
+### 3.2 Cas d’usage
 
-```
-AgriSolar/
-  client/
-    Dockerfile
-    .dockerignore
-    vite.config.js
-    tailwind.config.js
-    postcss.config.js
-    index.html
-    public/
-      manifest.webmanifest
-      sw.js
-    src/
-      App.jsx
-      main.jsx
-      index.css
-      components/
-        index.js
-        Layout.jsx
-      hooks/
-        index.js
-        useSizing.js
-        useCatalog.js
-        useOfflineStorage.js
-      services/
-        apiClient.js
-        catalogService.js
-        pvgisService.js
-        quoteService.js
-        offlineService.js
-      pages/
-        CatalogPage.jsx
-        SizingPage.jsx
-        QuotePage.jsx
-        OfflinePage.jsx
-      pwa/
-        registerServiceWorker.js
-      db/
-        indexedDb.js
-      utils/
-        constants.js
-        math.js
+1. L’utilisateur saisit les caractéristiques du site : localisation, débit requis, saisonnalité, profondeur de puisage, longueur de tuyauterie, etc.
+2. L’application calcule la hauteur manométrique totale, estime la puissance nécessaire et sélectionne les composants adaptés.
+3. Le système propose un dimensionnement de champ PV, une configuration de pompe/variateur et un coût matériel.
+4. Le résultat est présenté sous forme de tableau de synthèse, de KPI et de graphiques économiques.
+5. Le projet peut être enregistré, exporté en PDF, ou synchronisé lorsque le réseau est disponible.
 
-  server/
-    Dockerfile
-    .dockerignore
-    prisma/
-      schema.prisma
-      seed.js
-    src/
-      app.js
-      server.js
-      config/
-        env.js
-        db.js
-      routes/
-        index.js
-        catalog.routes.js
-        sizing.routes.js
-        quotes.routes.js
-      controllers/
-        health.controller.js
-        catalog.controller.js
-        sizing.controller.js
-        quotes.controller.js
-      services/
-        catalog.service.js
-        sizing.service.js
-        pvgis.service.js
-        pdf.service.js
-        offlineSync.service.js
-      models/
-        catalog.model.js
-      middlewares/
-        errorHandler.js
-        notFound.js
-      utils/
-        http.js
-        validators.js
+### 3.3 Enjeux techniques
 
-  docker-compose.yml
-  .env.example
-  README.md
-```
+- Intégrer des **données PV réalistes** (via PVGIS) pour dimensionner correctement le champ photovoltaïque.
+- Gérer des **corrélations hydrauliques**, telles que la HMT, les pertes de charge et la plage de fonctionnement des pompes.
+- Construire une **architecture modulable** pour séparer le catalogue, le dimensionnement, le devis et le mode offline.
+- Fournir un **flux utilisateur fiable** même lorsque la connectivité manque.
 
 ---
 
-## 4) Détail des modules fonctionnels
+## 4) Architecture technique
 
-### 4.1) Gestion Catalogue
+### 4.1 Frontend
 
-**But** : centraliser le référentiel matériel et les paramètres techniques.
+- **React.js** avec **Vite** pour une application moderne et réactive.
+- **Tailwind CSS** pour le design rapide et cohérent.
+- **PWA** pour une installation possible sur mobile/tablette et une expérience offline.
+- **IndexedDB** pour stocker localement les projets et permettre la continuité hors ligne.
 
-Contenu typique du catalogue (à adapter à votre contexte) :
-- Panneaux photovoltaïques (puissance, rendement, Voc/Isc, dimensions, prix)
-- Pompes (débit nominal, HMT max, courbes, puissance, type AC/DC, prix)
-- Contrôleurs / variateurs / MPPT
-- Tuyaux et accessoires (diamètres, rugosité, pertes)
-- Bassins (géométrie, volumes, matériaux)
+### 4.2 Backend
 
-Fonctionnalités :
-- CRUD (création, édition, suppression)
-- Recherche/filtrage
-- Import/export (CSV/JSON) (optionnel)
-- Versioning simple (optionnel)
+- **Node.js** + **Express** pour l’API REST.
+- Architecture **couches** : routes → contrôleurs → services.
+- **Services métiers** spécifiques : catalogue, dimensionnement, PVGIS, PDF, synchronisation.
+- **Prisma** comme ORM pour interagir avec PostgreSQL.
 
-Front (exemples d’écrans) :
-- Page Catalogue (liste + détail)
-- Formulaires de saisie
+### 4.3 Base de données
 
-Back (exemples) :
-- Routes `GET/POST/PUT/DELETE /api/catalog`
-- Contrôleur `catalog.controller.js`
-- Service `catalog.service.js`
+- **PostgreSQL** comme moteur relationnel.
+- Modèles prévisionnels : `CatalogItem`, `Project`, `SizingInput`, `SizingResult`, `Quote`, `QuoteItem`, `SyncEvent`.
+- Fichier de configuration : `server/prisma/schema.prisma`.
 
----
+### 4.4 Infrastructure
 
-### 4.2) Moteur de dimensionnement (avec intégration PVGIS)
-
-**But** : produire une configuration cohérente pour le pompage solaire et le besoin d’irrigation.
-
-Entrées (exemples) :
-- Localisation (latitude/longitude ou lieu)
-- Besoins en eau (m³/jour, plage horaire, saison)
-- Données hydrauliques :
-  - Débit cible
-  - Hauteur manométrique totale (HMT) (ou éléments pour la calculer)
-  - Longueur/diamètre de tuyauterie
-  - Pertes de charge estimées
-- Contraintes : budget, disponibilité matériel, redondance
-
-Calculs (logique à implémenter progressivement) :
-- Estimation énergie quotidienne nécessaire
-- Estimation puissance pompe et sélection dans le catalogue
-- Dimensionnement champ PV (puissance crête, nombre de modules, séries/parallèles)
-- Scénarios (optimisé coût / optimisé performance / optimisé disponibilité)
-
-#### Intégration API PVGIS
-Rôle de PVGIS :
-- Fournir des données d’irradiation/production PV estimée selon la localisation et l’inclinaison.
-
-Bonnes pratiques prévues :
-- **Mise en cache** des réponses (pour limiter les appels)
-- **Tolérance aux pannes** : fallback sur valeurs moyennes si l’API est indisponible
-- **Traçabilité** : stocker les paramètres d’appel (tilt, azimuth, pertes, etc.) associés au résultat
-
-Back (exemples) :
-- Service `pvgis.service.js` (appel HTTP PVGIS)
-- Service `sizing.service.js` (orchestration des calculs)
-- Route `POST /api/sizing/run` (à créer lors de l’implémentation)
+- **Docker Compose** pour lancer l’ensemble de la stack en développement.
+- Services : `client`, `server`, `db`.
+- Fichier principal : `docker-compose.yml`.
 
 ---
 
-### 4.3) Générateur de Devis PDF
+## 5) Modules fonctionnels détaillés
 
-**But** : générer un devis PDF à partir d’un projet dimensionné et du catalogue.
+### 5.1 Gestion Catalogue
 
-Contenu du devis :
-- En-tête (client, projet, date, référence)
-- Liste matériel (désignation, quantité, prix unitaire, sous-total)
-- Main d’œuvre/transport (optionnel)
-- Totaux (HT/TVA/TTC)
-- Notes (conditions, validité)
+Le catalogue contient le matériel utilisé pour le dimensionnement : panneaux PV, pompes, contrôleurs, tuyauterie, accessoires et bassins.
 
-Approches possibles (à décider au moment de l’implémentation) :
-- Génération via un moteur PDF (ex : pdfkit)
-- Génération HTML → PDF (ex : Puppeteer)
+Fonctionnalités prévues :
+- gestion des fiches produit,
+- tri et filtrage,
+- création/modification/suppression,
+- stockage dans PostgreSQL,
+- utilisation dans les calculs de chiffrage.
 
-Back (exemples) :
-- Service `pdf.service.js`
-- Route `POST /api/quotes/pdf`
+Fichiers clés :
+- `client/src/services/catalogService.js`
+- `server/src/controllers/catalog.controller.js`
+- `server/src/services/catalog.service.js`
+- `server/prisma/schema.prisma`
 
----
+### 5.2 Dimensionnement solaire et irrigation
 
-### 4.4) Mode Offline (PWA + IndexedDB)
+Ce module transforme les paramètres de site en une solution technique.
 
-**But** : pouvoir travailler en zone à faible connectivité.
+Inputs :
+- localisation GPS,
+- besoin en volume d’eau,
+- période de pompage,
+- hauteur de refoulement,
+- longueur de canalisation,
+- caractéristiques du bassin.
+
+Outputs :
+- sélection de pompe,
+- puissance PV requise,
+- configuration de modules PV,
+- calculs de production,
+- coût estimé.
+
+Fichiers clés :
+- `client/src/hooks/useSizing.js`
+- `client/src/pages/SizingPage.jsx`
+- `server/src/services/sizing.service.js`
+- `server/src/services/pvgis.service.js`
+
+### 5.3 Génération de devis PDF
+
+L’outil doit pouvoir exporter un dossier commercial structuré.
+
+Contenu :
+- entête client/projet,
+- liste produits,
+- détails quantités/prix,
+- totaux et marges,
+- conditions et validité.
+
+Fichier clé : `server/src/services/pdf.service.js`
+
+### 5.4 Mode Offline
+
+Le mode offline permet de continuer à travailler même sans connexion.
 
 Principes :
-- Le **service worker** gère le cache des assets et (éventuellement) certaines réponses API.
-- **IndexedDB** stocke localement :
-  - catalogue (ou partie),
-  - projets, inputs, résultats,
-  - une file d’attente d’actions à synchroniser.
+- cache des ressources de l’application,
+- stockage local des projets,
+- mise en file d’attente des actions,
+- synchronisation automatique au retour du réseau.
 
-Synchronisation (idées de flux) :
-- Mode offline : création/édition locale → journalisation (queue) → affichage état “à synchroniser”.
-- Mode online : envoi des actions → résolution de conflits (stratégie à définir) → mise à jour DB.
-
-Front (emplacements prévus) :
-- `client/src/db/indexedDb.js` (abstraction IndexedDB)
+Fichiers clés :
+- `client/src/db/indexedDb.js`
 - `client/src/services/offlineService.js`
-- Hooks dédiés : `useOfflineStorage.js`
-
-Back (emplacements prévus) :
 - `server/src/services/offlineSync.service.js`
 
 ---
 
-## 5) API (proposition de découpage)
+## 6) État d’avancement réel
 
-Les routes ci-dessous sont **indicatives** (à confirmer lors de l’implémentation) :
-- `GET /api/health` : statut du service
-- `GET /api/catalog` : liste
-- `POST /api/catalog` : créer
-- `PUT /api/catalog/:id` : modifier
-- `DELETE /api/catalog/:id` : supprimer
-- `POST /api/sizing/run` : lancer un dimensionnement
-- `POST /api/pvgis/query` : proxy PVGIS (si nécessaire)
-- `POST /api/quotes/pdf` : générer un PDF
-- `POST /api/offline/sync` : synchronisation offline
+Le projet est en développement. Une première version fonctionnelle existe, mais plusieurs composants restent à finaliser.
 
----
+### Fonctionnalités déjà implémentées
 
-## 6) Base de données (modèles prévisionnels)
+- ✅ Lancement de l'infrastructure dev par Docker Compose.
+- ✅ Backend qui lit des données depuis PostgreSQL (clients, produits, matériaux spécifiques).
+- ✅ Base de données enrichie avec des tables spécifiques (`Panneaux_Photovoltaiques`, `Pompes_Hydrauliques`, `Variateurs_Solaires`) et script de seed.
+- ✅ Interface de saisie multi-étapes "Dimensionnement" (menus déroulants dynamiques connectés au catalogue matériel).
+- ✅ Dashboard de résultats et export PDF visuel via `pdfkit` (mise en page des tableaux et totaux fiabilisée).
 
-Modèles possibles (à affiner) :
-- `CatalogItem` (type, specs techniques, prix)
-- `Project` (métadonnées, localisation, contraintes)
-- `SizingInput` (paramètres d’entrée)
-- `SizingResult` (résultats, scénarios, hypothèses)
-- `Quote` / `QuoteItem` (devis et lignes)
-- `SyncEvent` (optionnel) : journal de synchronisation offline
+### Fonctionnalités partiellement implémentées ou manquantes
 
-Le schéma Prisma est défini dans :
-- `server/prisma/schema.prisma`
+- ⚠️ Catalogue : lecture OK, intégration CRUD complet dans l'UI d'administration à finaliser.
+- ⚠️ PVGIS : structure prévue, pas encore d'intégration réelle.
+- ❌ Offline : PWA / IndexedDB / synchronisation non finalisés.
+- ⚠️ Devis persistants : modèle existant, API pour sauvegarder les devis dans la base de données incomplète.
+
+> Voir `progress.md` pour une analyse détaillée de l’avancement.
 
 ---
 
-## 7) Lancer en dev
+## 7) Installation et exécution
 
-### Option A — Tout via Docker Compose (recommandé)
+### Installation rapide avec Docker Compose
 
-Pré-requis :
-- Docker
-- Docker Compose (commande `docker compose`)
-
-Démarrer la stack (Postgres + API + UI) :
+Pré-requis : Docker + Docker Compose.
 
 ```bash
 docker compose up --build
 ```
 
-Accès :
+Puis accéder à :
 - UI : http://localhost:5173
 - API : http://localhost:3001
-- DB : Postgres sur `localhost:5432`
 
-Endpoints utiles :
-- `GET http://localhost:3001/api/health`
-- `GET http://localhost:3001/api/clients`
-- `GET http://localhost:3001/api/catalog`
-- `POST http://localhost:3001/api/sizing/run`
+### Exécution manuelle sans Docker
 
-Arrêter :
-
-```bash
-docker compose down
-```
-
-Reset DB (supprime le volume Postgres) :
-
-```bash
-docker compose down -v
-```
-
-### Option B — Sans Docker (Node + Postgres)
-
-Pré-requis :
-- Node.js 20+
-- Postgres 16+
-
-1) Démarrer Postgres localement (service OS ou container).
-
-2) Backend :
-
-Créez un fichier `server/.env` (ou exportez les variables) :
-
-```env
-PORT=3001
-DATABASE_URL=postgresql://postgres:postgres@localhost:5432/agrisolar?schema=public
-```
-
-Puis :
-
-```bash
-cd server
-npm install
-npm run prisma:generate
-npm run db:push
-npm run db:seed
-npm run dev
-```
-
-3) Frontend :
-
-```bash
-cd client
-npm install
-npm run dev
-```
-
-Le client vise l’API sur `http://localhost:3001` en dev (voir `client/src/services/api.js`).
+1. Installer les dépendances backend et frontend.
+2. Configurer `.env` dans `server/`.
+3. Démarrer PostgreSQL localement.
+4. Lancer le backend puis le frontend.
 
 ---
 
-## 8) Prochaines étapes (après la structure)
+## 8) Structure du dépôt
 
-- Initialiser réellement le client via Vite (React) + config Tailwind.
-- Initialiser le serveur Express + routage + middlewares.
-- Écrire le schéma Prisma + migrations.
-- Implémenter le module Catalogue (CRUD) en premier.
-- Ajouter le moteur de dimensionnement + intégration PVGIS.
-- Ajouter génération PDF.
-- Finaliser PWA + offline + synchronisation.
+- `client/` : application front-end React + PWA.
+- `server/` : API Express + services métiers + Prisma.
+- `server/prisma/` : schéma de données et seed.
+- `docker-compose.yml` : orchestration dev.
+- `progress.md` : état d’avancement réel.
+
+---
+
+## 9) Roadmap recommandée
+
+1. Finaliser le **CRUD catalogue** et les écrans admin.
+2. Implémenter la **connexion PVGIS** et enrichir les calculs métier.
+3. Valider et sauvegarder les **devis** dans la base.
+4. Construire un **générateur PDF serveur** plus stable.
+5. Terminer le **mode offline** avec synchronisation.
+6. Ajouter des **tests**, de la **validation** et de la **sécurité**.
+
+---
+
+## 10) Notes générales
+
+Ce document a été réorganisé pour donner à la fois une vue d’ensemble du projet et une description de l’état actuel du code. Il sert de base pour un rapport de suivi, tout en guidant les prochains développements.
